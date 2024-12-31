@@ -33,3 +33,5 @@
 
 embedding/build
 embedding/.cache/clangd/index
+linear/.cache/clangd/index
+linear/build
