@@ -1,6 +1,5 @@
 # 构建Zhilight项目, 测试单元
 
-
 ## 1. 步骤
 * 1. install pybind11
 ```bash
@@ -14,13 +13,17 @@ git clone https://github.com/pybind/pybind11.git
 make
 ```
 
-
 ## 3. 调试
-
-
+```bash
+gdb python3
+set directory ..
+run ../test_embedding.py
+break layer_embedding.cpp:xxx
+run
+layout src
+```
 
 ## 4. 测试
-
 ${\lvert \text{input} - \text{other} \rvert \leq \texttt{atol} + \texttt{rtol} \times \lvert \text{other} \rvert}$
 * input：第一个要比较的张量。
 * other：第二个要比较的张量。
