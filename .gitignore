@@ -32,3 +32,4 @@
 *.app
 
 embedding/build
+embedding/.cache/clangd/index
