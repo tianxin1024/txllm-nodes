@@ -148,13 +148,42 @@ public:
         }
     }
 
+    py::array forward(py::array &ids, py::array &ids_sub) {
+        auto ctx = engine->create_context({0});
+        {
+            auto d = ctx.with_device(0);
+
+            auto ids_buf = ids.request();
+            std::vector<size_t> ids_size;
+            for (int i = 0; i < ids.ndim(); ++i) {
+                ids_size.push_back(ids_buf.shape[i]);
+            }
+            auto t_ids = ctx.tensor(ids_size, bmengine::core::DataType::kInt32);
+            t_ids.from_buffer(ids_buf.ptr);
+
+            auto subs_buf = ids_sub.request();
+            std::vector<size_t> subs_size;
+            for (int i = 0; i < ids_sub.ndim(); ++i) {
+                subs_size.push_back(subs_buf.shape[i]);
+            }
+            auto t_subs = ctx.tensor(subs_size, bmengine::core::DataType::kInt32);
+            t_subs.from_buffer(subs_buf.ptr);
+
+            auto out_data = md->forward(ctx, t_ids, t_subs);
+            py::array_t<float> ndarray(out_data.size());
+            auto converted = model::convert_fp32(ctx, out_data);
+            converted.to_buffer(ndarray.mutable_data());
+            return ndarray;
+        }
+    }
 }; // end of class PyEmbedding
 
 void define_layer_embedding(py::module_ &layers_m) {
     py::class_<PyEmbedding>(layers_m, "Embedding")
         .def(py::init(&PyEmbedding::create))
         .def("load_state_dict", &PyEmbedding::load_state_dict)
-        .def("named_parameters", &PyEmbedding::named_parameters);
+        .def("named_parameters", &PyEmbedding::named_parameters)
+        .def("forward", &PyEmbedding::forward);
 }
 
 PYBIND11_MODULE(llm_nodes, handle) {

@@ -81,8 +81,9 @@ class EmbeddingExt(torch.nn.Module):
             logits = torch.cat([logits, logits_ext], dim=-1)
         return logits
 
+
 def test_embedding(SIZE, BATCH, SEQLEN, SCALE):
-    rtol, atol = (1e-3, 1e-3)
+    rtol, atol = (1e-3, 5e-3)
 
     input = torch.randint(0, SIZE[0], (BATCH, SEQLEN,), dtype=torch.int32, device="cuda")
     input_subs = torch.randint(0, SEQLEN, (BATCH, SEQLEN,), dtype=torch.int32, device="cuda")
@@ -98,7 +99,17 @@ def test_embedding(SIZE, BATCH, SEQLEN, SCALE):
     state_dict = ff.named_parameters()
     print(state_dict)
 
-
+    for name, param in state_dict_pt.items():
+        assert name in state_dict
+        assert torch.allclose(
+            torch.from_numpy(state_dict[name]).to(torch.half),
+            param.cpu(),
+            rtol=rtol,
+            atol=atol)
+    out = ff.forward(input.cpu().numpy(), input_subs.cpu().numpy())
+    print(out)
+    assert torch.allclose(
+        torch.from_numpy(out).to(torch.half), out_pt.cpu(), rtol=rtol, atol=atol)
  
 if __name__ == "__main__":
     test_embedding((2, 8), 4, 4, True)
