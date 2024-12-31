@@ -35,7 +35,7 @@ public:
 
 Embedding::Embedding(const core::Context &ctx, int dim_model, int vocab_size, bool scale_weights, core::DataType dtype) :
     pimpl(new impl(ctx, vocab_size, dim_model, scale_weights, dtype)), core::Layer() {
-    std::cout << ">>>>> Embedding create ..." << std::endl;
+    add_parameter("weight", pimpl->weight);
 }
 
 Embedding::~Embedding() = default;

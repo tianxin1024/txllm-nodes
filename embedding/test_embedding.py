@@ -92,7 +92,14 @@ def test_embedding(SIZE, BATCH, SEQLEN, SCALE):
     print(out_pt.shape)
 
     ff = layers.Embedding(SIZE[1], SIZE[0], SCALE)
+    state_dict_pt = ff_pt.state_dict(prefix="token_embedding.")
+    ff.load_state_dict(
+        dict([(k, v.contiguous().cpu().numpy()) for k, v in state_dict_pt.items()]))
+    state_dict = ff.named_parameters()
+    print(state_dict)
 
+
+ 
 if __name__ == "__main__":
     test_embedding((2, 8), 4, 4, True)
 
