@@ -23,6 +23,9 @@ public:
     }
 
     static PyEmbedding create(int dim_model, int vocab_size, bool scale_weights = false) {
+        std::cout << ">>>>> PyEmbedding create function" << std::endl;
+        auto ff = PyEmbedding(dim_model, vocab_size, scale_weights);
+        return ff;
     }
 
 }; // end of class PyEmbedding

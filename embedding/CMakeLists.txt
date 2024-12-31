@@ -11,7 +11,7 @@ set(CMAKE_CXX_CFLAGS "-O0 -w -g")
 
 add_subdirectory(pybind11)
 add_subdirectory(bmengine)
-# add_subdirectory(backend)
+add_subdirectory(backend)
 
 pybind11_add_module(llm_nodes layer_embedding.cpp)
 

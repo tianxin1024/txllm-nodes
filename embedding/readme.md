@@ -19,5 +19,14 @@ make
 
 
 
+## 4. 测试
+
+${\lvert \text{input} - \text{other} \rvert \leq \texttt{atol} + \texttt{rtol} \times \lvert \text{other} \rvert}$
+* input：第一个要比较的张量。
+* other：第二个要比较的张量。
+* rtol：相对容忍度，默认值为 1e-05。
+* atol：绝对容忍度，默认值为 1e-08。
+* equal_nan：如果为 True，则会将两个 NaN 值视为相等，默认值为 False。   
+
 ## 参考
 [ZhiLight](https://github.com/zhihu/ZhiLight)
