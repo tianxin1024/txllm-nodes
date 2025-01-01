@@ -1,14 +1,8 @@
 import math
 import torch
 import torch.nn.functional as F
-import build.llm_nodes
 
 from build.llm_nodes import layers
-
-print(dir(build.llm_nodes))
-
-print(dir(layers))
-
 
 class Linear(torch.nn.Module):
     def __init__(self, 
