@@ -6,6 +6,7 @@
 #include <bmengine/core/core.h>
 #include <pybind11/pybind11.h>
 #include <ATen/ATen.h>
+#include <torch/torch.h>
 
 namespace bind {
 
