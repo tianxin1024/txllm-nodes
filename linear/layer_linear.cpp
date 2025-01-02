@@ -1,5 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <bmengine/core/core.h>
+#include "backend/linear.h"
 #include <string>
 #include <iostream>
 
@@ -8,13 +9,23 @@ namespace py = pybind11;
 
 template <typename LayerType>
 class PyLayerBase {
+protected:
+    std::shared_ptr<LayerType> layer;
+    std::shared_ptr<bmengine::core::Engine> engine;
+    std::shared_ptr<bmengine::core::Context> ctx;
+    std::shared_ptr<bmengine::core::WithDevice> with_device;
+
 public:
     template <typename... Args>
     PyLayerBase(Args &&... args) {
+        std::cout << " >>>> PyLayerBase constructor " << std::endl;
     }
 
     ~PyLayerBase() {
         // order matters.
+        layer = nullptr;
+        with_device = nullptr;
+        ctx = nullptr;
     }
 }; // end of class PyLayerBase
 
@@ -25,7 +36,7 @@ public:
              std::string &dtype_name) :
         PyLayerBase<Linear>(dim_model, dim_ff, act_fn_type,
                             quant, scale, weight_transposed, false,
-                            core::DisLayout::COLUMNAR,
+                            core::DistLayout::COLUMNAR,
                             core::name_to_data_type(dtype_name)) {
         std::cout << " >>>> PyLinear constructor " << dim_model << " " << dim_ff << " " << act_fn_type << std::endl;
     }
