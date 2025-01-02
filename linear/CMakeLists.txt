@@ -18,29 +18,23 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_CFLAGS "-O0 -w -g")
 
-add_subdirectory(pybind11)
+find_package(Python COMPONENTS Interpreter Development REQUIRED)
+set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
+message(STATUS PYTHON_EXECUTABLE ${PYTHON_EXECUTABLE})
+message(STATUS PYTHON_INCLUDE_DIRS ${Python_INCLUDE_DIRS})
+
+execute_process(
+	COMMAND ${PYTHON_EXECUTABLE} -c "import pybind11; \
+		print(pybind11.get_cmake_dir())"
+	OUTPUT_VARIABLE pybind11_DIR
+	OUTPUT_STRIP_TRAILING_WHITESPACE)
+find_package(pybind11 REQUIRED)
+
 add_subdirectory(bmengine)
-
-file(GLOB_RECURSE BACKEND_SOURCES
-    "backend/*.cpp"
-    "backend/*.cu"
-)
-
-# add_library(backend STATIC ${BACKEND_SOURCES})
-# set_property(TARGET backend PROPERTY POSITION_INDEPENDENT_CODE ON)
-
-# target_include_directories(backend
-#     PUBLIC "pybind11/include"
-#     PUBLIC "bmengine/bmengine/include"
-# )
-
-# target_link_libraries(backend
-#     PUBLIC bmengine
-#     "-Wl,-Bsymbolic -Wl,-Bsymbolic-functions"
-# )
+add_subdirectory(backend)
 
 pybind11_add_module(llm_nodes layer_linear.cpp)
 
-target_link_libraries(llm_nodes PRIVATE bmengine
+target_link_libraries(llm_nodes PRIVATE backend bmengine
     "-Wl,-Bsymbolic -Wl,-Bsymbolic-functions" "pthread")
 
