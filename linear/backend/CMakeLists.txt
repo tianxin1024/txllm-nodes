@@ -11,10 +11,6 @@ message(FILES_BACKEND ${BACKEND_SOURCES})
 
 add_library(backend SHARED ${BACKEND_SOURCES})
 
-message(STATUS ">>>>>>>>>>>>>>>> TORCH_LIBRARY ${TORCH_LIBRARIES}")
-message(STATUS ">>>>>>>>>>>>>> TORCH_LIBRARY ${TORCH_LIBRARY}")
-message(STATUS ">>>>>>>>>>>>>> TORCH_INCLUDE_DIRS ${TORCH_INCLUDE_DIRS}")
-
 target_include_directories(backend
     PUBLIC FILES_BACKEND_HEADER
     PUBLIC ${Python_INCLUDE_DIRS}

@@ -1,5 +1,7 @@
 #pragma once
 #include <bmengine/core/core.h>
+#include "backend/py_utils.h"
+#include <ATen/ATen.h>
 
 using namespace bmengine;
 
@@ -27,7 +29,16 @@ public:
 
     void load_state_dict(const std::map<std::string, bmengine::core::Tensor> &state_dict) {
         auto named_params = layer->named_parameters("", true);
-        // bind::load_at_state_dict(*ctx, state_dict, named_params);
+        bind::load_at_state_dict(*ctx, state_dict, named_params);
+    }
+
+    std::map<const std::string, at::Tensor> named_parameters() {
+        std::map<const std::string, at::Tensor> result;
+        auto named_params = layer->named_parameters("", true);
+        for (auto it : named_params) {
+            result.emplace(it.first, bind::tensor_to_aten(*ctx, *it.second));
+        }
+        return result;
     }
 
 }; // end of class PyLayerBase
