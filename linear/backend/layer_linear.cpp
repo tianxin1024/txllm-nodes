@@ -1,11 +1,14 @@
 #include <iostream>
+#include <bmengine/core/core.h>
 #include <pybind11/pybind11.h>
-// #include "backend/linear.h"
-// #include "backend/linear_base.h"
+#include "backend/linear.h"
+#include "backend/utils.h"
 
 namespace py = pybind11;
 
-class PyLinear {
+using namespace bmengine;
+
+class PyLinear : public PyLayerBase<nn::Linear> {
 public:
     PyLinear(
         int dim_model,
@@ -14,7 +17,15 @@ public:
         bool quant,
         bool scale,
         bool weight_transposed,
-        std::string &dtype_name) {
+        std::string &dtype_name) :
+        PyLayerBase<nn::Linear>(dim_model,
+                                dim_ff,
+                                act_fn_type,
+                                scale,
+                                weight_transposed,
+                                false,
+                                core::DistLayout::COLUMNAR,
+                                utils::name_to_data_type(dtype_name)) {
         std::cout << "PyLinear constructor" << std::endl;
     }
     static PyLinear create(

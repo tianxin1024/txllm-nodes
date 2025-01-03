@@ -1,5 +1,4 @@
 cmake_minimum_required(VERSION 3.10)
-
 project(backend)
 
 find_package(Python COMPONENTS Interpreter Development REQUIRED)
