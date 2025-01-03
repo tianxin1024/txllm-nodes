@@ -1,14 +1,11 @@
-#include <pybind11/pybind11.h>
-#include <bmengine/core/core.h>
-#include "backend/linear.h"
-#include "backend/linear_base.h"
-#include <string>
 #include <iostream>
+#include <pybind11/pybind11.h>
+// #include "backend/linear.h"
+// #include "backend/linear_base.h"
 
-using namespace bmengine;
 namespace py = pybind11;
 
-class PyLinear : public PyLayerBase<Linear> {
+class PyLinear {
 public:
     PyLinear(
         int dim_model,
@@ -17,17 +14,8 @@ public:
         bool quant,
         bool scale,
         bool weight_transposed,
-        std::string &dtype_name) :
-        PyLayerBase<Linear>(
-            dim_model,
-            dim_ff,
-            act_fn_type,
-            scale,
-            weight_transposed,
-            false,
-            core::DistLayout::COLUMNAR,
-            core::name_to_data_type(dtype_name)) {
-        printf("PyLinear constructor\n");
+        std::string &dtype_name) {
+        std::cout << "PyLinear constructor" << std::endl;
     }
     static PyLinear create(
         int dim_model,
@@ -45,8 +33,8 @@ public:
 
 void define_layer_linear(py::module_ &layers_m) {
     py::class_<PyLinear>(layers_m, "Linear")
-        .def(py::init(&PyLinear::create))
-        .def("load_state_dict", &PyLinear::load_state_dict);
+        .def(py::init(&PyLinear::create));
+    // .def("load_state_dict", &PyLinear::load_state_dict);
 }
 
 PYBIND11_MODULE(llm_nodes, handle) {
