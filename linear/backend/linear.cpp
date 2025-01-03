@@ -5,6 +5,8 @@ using bmengine::core::Tensor;
 using bmengine::core::DataType;
 using bmengine::core::DistLayout;
 
+const std::string bmengine::core::Context::EMPTY_STR;
+
 namespace nn {
 
 class Linear::impl {
