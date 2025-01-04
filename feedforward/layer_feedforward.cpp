@@ -1,6 +1,8 @@
 #include <iostream>
 #include <bmengine/core/core.h>
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+#include <pybind11/numpy.h>
 #include "backend/feedforward.h"
 #include <thread>
 #include <csignal>
@@ -88,14 +90,27 @@ public:
             mds[0]->init_parameters(ctx, gen);
             curandDestroyGenerator(gen);
         }
-    };
+    }
+
+    void load_state_dict(const std::map<std::string, py::array> &state_dict)
+        __attribute__((visibility("hidden"))) {
+        std::vector<std::thread> threads;
+
+        for (int i = 0; i < engine->num_gpus(); ++i) {
+            threads.emplace_back([this, i, &state_dict] {
+                auto ctx = engine->create_context({i});
+                bmengine::core::WithDevice device(ctx, 0);
+                auto named_params = mds[i]->named_parameters("ff", true);
+            });
+        }
+    }
 
 }; // end of class PyFeedForward
 
 void define_layer_linear(py::module_ &layers_m) {
-    py::class_<PyFeedForward>(layers_m, "Linear")
-        .def(py::init(&PyFeedForward::create));
-    // .def("load_state_dict", &PyFeedForward::load_state_dict);
+    py::class_<PyFeedForward>(layers_m, "FeedForward")
+        .def(py::init(&PyFeedForward::create))
+        .def("load_state_dict", &PyFeedForward::load_state_dict);
     // .def("named_parameters", &PyLinear::named_parameters);
 }
 
