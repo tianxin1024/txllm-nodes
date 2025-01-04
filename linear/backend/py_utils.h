@@ -19,7 +19,7 @@ using bmengine::core::DataType;
 
 void load_at_state_dict(
     Context &ctx,
-    const std::map<std::string, core::Tensor> &state_dict,
+    const std::map<std::string, at::Tensor> &state_dict,
     std::map<const std::string, core::Tensor *> named_params,
     bool parallel = false);
 

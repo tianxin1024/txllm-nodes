@@ -4,6 +4,8 @@ import torch.nn.functional as F
 
 from build.llm_nodes import layers
 
+import ipdb
+
 class Linear(torch.nn.Module):
     def __init__(self, 
                  dim_in: int,
@@ -55,16 +57,17 @@ def test_linear(SIZE, BATCH, SEQLEN, ACTIVATION, SCALE, W_TRANS, DTYPE):
 
     ff_pt = Linear(SIZE[0], SIZE[1], ACTIVATION, dtype=DTYPE, scale_before=SCALE).cuda()
     out_pt = ff_pt.forward(input)
-    print(out_pt)
+    # print(out_pt)
 
     ff = layers.Linear(SIZE[0], SIZE[1], ACTIVATION, False, SCALE, W_TRANS, 
                        "bfloat" if DTYPE == torch.bfloat16 else "half")
-    print(ff)
+    # print(ff)
     state_dict = ff_pt.state_dict()
     weight_pt = state_dict["weight"]
-    print(state_dict)
+    # print(state_dict)
 
-    ff.load_state_dict(state_dict)
+    ff.named_parameters()
+    # ff.load_state_dict(state_dict)
 
 if __name__ == "__main__":
     test_linear((5, 6), 4, 2, "", True, False, torch.bfloat16)

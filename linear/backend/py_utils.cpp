@@ -49,6 +49,7 @@ const core::Tensor aten_to_tensor(const Context &ctx, const at::Tensor &at_tenso
     }
     auto shape = at_tensor.sizes().vec();
     std::vector<size_t> sizes(shape.begin(), shape.end());
+    std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>" << sizes[0] << " " << sizes[1] << std::endl;
     auto dtype = aten_typemeta_to_bmengine(at_tensor.dtype());
     if (at_tensor.is_cpu()) {
         std::cout << "at_tensor is cpu" << std::endl;
@@ -56,11 +57,11 @@ const core::Tensor aten_to_tensor(const Context &ctx, const at::Tensor &at_tenso
         // tensor.from_buffer(at_tensor.data_ptr());
         // return std::move(tensor);
     } else {
-        // BM_ASSERT(at_tensor.is_cuda() && at_tensor.get_device() == ctx.active_device(),
-        //           "tensor device miss match.");
-        // const auto tensor = core::Tensor::from_external(
-        //     sizes, dtype, at_tensor.data_ptr(), at_tensor.nbytes(), ctx.active_device());
-        // return std::move(tensor);
+        BM_ASSERT(at_tensor.is_cuda() && at_tensor.get_device() == ctx.active_device(),
+                  "tensor device miss match.");
+        const auto tensor = core::Tensor::from_external(
+            sizes, dtype, at_tensor.data_ptr(), at_tensor.nbytes(), ctx.active_device());
+        return std::move(tensor);
     }
 }
 
