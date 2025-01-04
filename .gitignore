@@ -36,3 +36,5 @@ embedding/.cache/clangd/index
 linear/.cache/clangd/index
 linear/build
 linear.bak
+feedforward/.cache/clangd/index
+feedforward/build
