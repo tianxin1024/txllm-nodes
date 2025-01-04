@@ -66,8 +66,8 @@ def test_linear(SIZE, BATCH, SEQLEN, ACTIVATION, SCALE, W_TRANS, DTYPE):
     weight_pt = state_dict["weight"]
     # print(state_dict)
 
-    ff.named_parameters()
-    # ff.load_state_dict(state_dict)
+    # ff.named_parameters()
+    ff.load_state_dict(state_dict)
 
 if __name__ == "__main__":
     test_linear((5, 6), 4, 2, "", True, False, torch.bfloat16)

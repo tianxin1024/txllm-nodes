@@ -46,8 +46,8 @@ public:
 void define_layer_linear(py::module_ &layers_m) {
     py::class_<PyLinear>(layers_m, "Linear")
         .def(py::init(&PyLinear::create))
-        .def("named_parameters", &PyLinear::named_parameters);
-    // .def("load_state_dict", &PyLinear::load_state_dict);
+        .def("load_state_dict", &PyLinear::load_state_dict);
+    // .def("named_parameters", &PyLinear::named_parameters);
 }
 
 PYBIND11_MODULE(llm_nodes, handle) {

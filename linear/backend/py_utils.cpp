@@ -65,16 +65,16 @@ const core::Tensor aten_to_tensor(const Context &ctx, const at::Tensor &at_tenso
     }
 }
 
-// at::Tensor tensor_to_aten(const Context &ctx, const core::Tensor &tensor) {
-//     auto sizes = tensor.shape();
-//     at::Tensor at_tensor = at::empty(
-//         at::IntArrayRef(std::vector<int64_t>(sizes.begin(), sizes.end())),
-//         at::initialTensorOptions()
-//             .device(at::Device(at::DeviceType::CUDA, tensor.device()))
-//             .dtype(bmengine_to_aten_scalertype(tensor.dtype())));
-//     BM_CUDART_ASSERT(cudaMemcpy(at_tensor.data_ptr(), tensor.data(), tensor.nbytes(), cudaMemcpyDeviceToDevice));
-//     return std::move(at_tensor);
-// }
+at::Tensor tensor_to_aten(const Context &ctx, const core::Tensor &tensor) {
+    auto sizes = tensor.shape();
+    at::Tensor at_tensor = at::empty(
+        at::IntArrayRef(std::vector<int64_t>(sizes.begin(), sizes.end())),
+        at::initialTensorOptions()
+            .device(at::Device(at::DeviceType::CUDA, tensor.device()))
+            .dtype(bmengine_to_aten_scalertype(tensor.dtype())));
+    BM_CUDART_ASSERT(cudaMemcpy(at_tensor.data_ptr(), tensor.data(), tensor.nbytes(), cudaMemcpyDeviceToDevice));
+    return std::move(at_tensor);
+}
 
 void load_at_state_dict(
     bmengine::core::Context &ctx,

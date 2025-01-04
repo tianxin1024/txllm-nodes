@@ -6,6 +6,13 @@
 
 using namespace bmengine;
 
+namespace py = pybind11;
+
+template <typename LayerType>
+LayerType *create_layer(bmengine::core::Context &ctx, py::args &args) {
+    throw std::runtime_error("Not implemented");
+}
+
 template <typename LayerType>
 class PyLayerBase {
 protected:
@@ -45,8 +52,8 @@ public:
 
     void load_state_dict(const std::map<std::string, at::Tensor> &state_dict) {
         std::cout << "PyLayerBase: load_state_dict" << std::endl;
-        auto named_params = layer->named_parameters("", true);
-        bind::load_at_state_dict(*ctx, state_dict, named_params);
+        // auto named_params = layer->named_parameters("", true);
+        // bind::load_at_state_dict(*ctx, state_dict, named_params);
     }
 
     std::map<const std::string, at::Tensor> named_parameters() {
@@ -54,7 +61,7 @@ public:
         std::map<const std::string, at::Tensor> result;
         // auto named_params = layer->named_parameters("", true);
         // for (auto it : named_params) {
-        // result.emplace(it.first, bind::tensor_to_aten(*ctx, *it.second));
+        //     result.emplace(it.first, bind::tensor_to_aten(*ctx, *it.second));
         // }
         return result;
     }
