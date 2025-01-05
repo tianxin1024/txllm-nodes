@@ -132,6 +132,8 @@ def test_feedforward(SIZE, BATCH, SEQLEN, SCALE, TRANS):
     print(state_dict_ff)
     ff.load_state_dict(state_dict_ff)
 
+    state_dict = ff.named_parameters()
+
 
 if __name__ == "__main__":
     test_feedforward((2, 4), 2, 2, False, False)
