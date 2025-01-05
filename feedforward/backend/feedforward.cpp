@@ -54,7 +54,6 @@ FeedForward::FeedForward(const core::Context &ctx,
                          model::ModelConfig cfg,
                          model::QuantConfig quant_config,
                          bool parallel) {
-    std::cout << ">>>>>>>>>>>>>>> FeedForward::FeedForward " << std::endl;
     impl::NormalImpl *p = new impl::NormalImpl(ctx, cfg, quant_config, parallel);
     pimpl.reset(p);
 

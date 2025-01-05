@@ -113,7 +113,7 @@ class FeedForward(torch.nn.Module):
 
 
 def test_feedforward(SIZE, BATCH, SEQLEN, SCALE, TRANS):
-    rtol,  atol = (1e-1, 1e-1)
+    rtol,  atol = (1e-3, 1e-2)
 
     input = torch.randn([BATCH, SEQLEN, SIZE[0]], dtype=torch.half, device="cuda")
 
@@ -133,21 +133,18 @@ def test_feedforward(SIZE, BATCH, SEQLEN, SCALE, TRANS):
     ff.load_state_dict(state_dict_ff)
 
     state_dict = ff.named_parameters()
-    print(" python >>>>>>>>>>>>>>>> ", state_dict)
     for name, param in state_dict_pt.items():
-        print("name: ", name)
-        print("param: " , param)
-        # assert name in state_dict
-        # assert torch.allclose(
-        #     (
-        #         torch.from_numpy(state_dict[name]).transpose(0, 1)
-        #         if TRANS
-        #         else torch.from_numpy(state_dict[name])
-        #     ).to(torch.half),
-        #     param.cpu(),
-        #     rtol=rtol,
-        #     atol=atol,
-        # )
+        assert name in state_dict
+        assert torch.allclose(
+            (
+                torch.from_numpy(state_dict[name]).transpose(0, 1)
+                if TRANS
+                else torch.from_numpy(state_dict[name])
+            ).to(torch.half),
+            param.cpu(),
+            rtol=rtol,
+            atol=atol,
+        )
  
 
 

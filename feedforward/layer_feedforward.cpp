@@ -17,14 +17,12 @@ void load_state_dict(bmengine::core::Context &ctx,
                      std::map<const std::string, bmengine::core::Tensor *> named_params,
                      bool parallel = false);
 
-void load_state_dict(
-    bmengine::core::Context &ctx,
-    const std::map<std::string, py::array> &state_dict,
-    std::map<const std::string, bmengine::core::Tensor *> named_params,
-    bool parallel) {
+void load_state_dict(bmengine::core::Context &ctx,
+                     const std::map<std::string, py::array> &state_dict,
+                     std::map<const std::string, bmengine::core::Tensor *> named_params,
+                     bool parallel) {
     for (auto it : named_params) {
-        std::cout << "*************** it.second ndim : " << it.second->ndim() << std::endl;
-        // BM_ASSERT(it.second, it.first + std::string(" not in named_params"));
+        BM_ASSERT(it.second, it.first + std::string(" not in named_params"));
         auto p = state_dict.find(it.first);
         if (p != state_dict.end()) {
             if (!parallel || ctx.rank() == 0) {
@@ -33,24 +31,20 @@ void load_state_dict(
                           it.first + " ndim miss match: " + std::to_string(it.second->ndim()) + " != " + std::to_string(buf.ndim));
                 for (int i = 0; i < it.second->ndim(); ++i) {
                     std::stringstream ss;
+
                     ss << "model[" << i << "]=" << it.second->shape()[i] << ", state["
                        << i << "]=" << buf.shape[i];
-                    std::cout << ss.str() + "=>wjj" << std::endl;
+                    // std::cout << ss.str() + "=>tianx" << std::endl;
                     BM_ASSERT(it.second->shape()[i] == buf.shape[i],
                               "Parameter `" + it.first + "` has different shape" + ss.str());
                 }
                 BM_ASSERT(it.second->nbytes() == (buf.size * buf.itemsize),
                           it.first + " size miss match: " + std::to_string(it.second->nbytes()) + " != " + std::to_string(buf.size * buf.itemsize));
-                // TODO add dtype check with numpy.
-                // BM_ASSERT(py::dtype == p->second.dtype().num(), it.first + " dtype
-                // miss match" + std::string(get_data_type_name(it.second->dtype())) +
-                // p->second.dtype().char_());
                 ctx.init_parameter(it.first, it.second);
                 it.second->from_buffer(buf.ptr);
             } else {
                 it.second->from_buffer(nullptr);
             }
-
         } else {
             std::stringstream ss;
             ss << "state_dict missing: " << it.first;
@@ -58,44 +52,6 @@ void load_state_dict(
         }
     }
 }
-
-// void load_state_dict(bmengine::core::Context &ctx,
-//                      const std::map<std::string, py::array> &state_dict,
-//                      std::map<const std::string, bmengine::core::Tensor *> named_params,
-//                      bool parallel) {
-//     std::cout << "bind::load_state_dict >>>>>>>>>>>>>>" << std::endl;
-//     for (auto it : named_params) {
-//         std::cout << ")))))))))))))))it.first:            " << it.first << std::endl;
-//         BM_ASSERT(it.second, it.first + std::string(" not in named_params"));
-//         auto p = state_dict.find(it.first);
-//         if (p != state_dict.end()) {
-//             if (!parallel || ctx.rank() == 0) {
-//                 auto buf = p->second.request();
-//                 BM_ASSERT(it.second->ndim() == buf.ndim,
-//                           it.first + " ndim miss match: " + std::to_string(it.second->ndim()) + " != " + std::to_string(buf.ndim));
-//                 for (int i = 0; i < it.second->ndim(); ++i) {
-//                     std::stringstream ss;
-
-//                     ss << "model[" << i << "]=" << it.second->shape()[i] << ", state["
-//                        << i << "]=" << buf.shape[i];
-//                     std::cout << ss.str() + "=>tianx" << std::endl;
-//                     BM_ASSERT(it.second->shape()[i] == buf.shape[i],
-//                               "Parameter `" + it.first + "` has different shape" + ss.str());
-//                 }
-//                 BM_ASSERT(it.second->nbytes() == (buf.size * buf.itemsize),
-//                           it.first + " size miss match: " + std::to_string(it.second->nbytes()) + " != " + std::to_string(buf.size * buf.itemsize));
-//                 ctx.init_parameter(it.first, it.second);
-//                 it.second->from_buffer(buf.ptr);
-//             } else {
-//                 it.second->from_buffer(nullptr);
-//             }
-//         } else {
-//             std::stringstream ss;
-//             ss << "state_dict missing: " << it.first;
-//             throw std::runtime_error(ss.str());
-//         }
-//     }
-// }
 } // namespace bind
 
 class PyFeedForward {
@@ -135,13 +91,6 @@ private:
         auto ctx = engine->create_context({0});
         bmengine::core::WithDevice device(ctx, 0);
         md = std::move(std::make_shared<FeedForward>(ctx, model_config, quant, true));
-
-        auto named_parameters = md->named_parameters("ff", true);
-
-        for (auto it : named_parameters) {
-            std::cout << ">>>>>> PyFeedForward: " << it.first << std::endl;
-            std::cout << ">>>>>> PyFeedForward: " << it.second->ndim() << std::endl;
-        }
     }
 
 public:
@@ -223,7 +172,6 @@ public:
         auto ctx = engine->create_context({0});
         bmengine::core::WithDevice device(ctx, 0);
         auto named_params = md->named_parameters("ff", true);
-        std::cout << "============================= load_state_dict " << std::endl;
         bind::load_state_dict(ctx, state_dict, named_params);
     }
 
