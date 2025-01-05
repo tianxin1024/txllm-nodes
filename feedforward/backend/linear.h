@@ -35,4 +35,11 @@ public:
         const core::Tensor &w);
 
     void move(Linear &other);
+
+    bool support_fuse_gptq_gate_in(const core::Tensor &input);
+
+    core::Tensor forward(const core::Context &ctx,
+                         const core::Tensor &x,
+                         bool quant_back = true,
+                         core::Tensor *output = nullptr);
 };

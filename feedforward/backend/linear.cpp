@@ -1,5 +1,8 @@
 #include "backend/linear.h"
 #include <bmengine/functions/gemm.h>
+#include <bmengine/logger/std_log_op.hpp>
+#include "backend/utils.h"
+#include "backend/activation_kernel.h"
 
 using bmengine::core::DataType;
 using bmengine::core::DistLayout;
@@ -24,7 +27,27 @@ public:
     }
     virtual ~impl() = default;
 
+    virtual core::Tensor forward(const core::Context &ctx,
+                                 const core::Tensor &input,
+                                 const std::string &output_name,
+                                 bool quant_back,
+                                 Tensor *output) = 0;
+
     virtual core::Tensor &get_weight() = 0;
+
+    Tensor activate(const core::Context &ctx, const Tensor &ret) {
+        if (!act_fn_type.empty()) {
+            ctx.recordEvent(act_fn_type, 2);
+        }
+        if (act_fn_type == "gelu") {
+            nn::gelu_inplace(ret, ctx.current_stream()->ptr);
+        } else if (act_fn_type == "silu") {
+            nn::silu_inplace(ret, ctx.current_stream()->ptr);
+        } else if (act_fn_type != "") {
+            throw std::runtime_error(act_fn_type + " activation is not supported");
+        }
+        return ret;
+    }
 };
 
 // =========================== normal linear ===========================
@@ -69,6 +92,29 @@ public:
 
     core::Tensor &get_weight() override {
         return *weight;
+    }
+
+    core::Tensor forward(const core::Context &ctx,
+                         const core::Tensor &input,
+                         const std::string &output_name,
+                         bool quant_back,
+                         Tensor *output) override {
+        // Input: (seq_len, dim_in)
+        // Output: (seq_len, dim_out)
+        BM_ASSERT(input.ndim() == 2 || input.ndim() == 3, "Input must be 2D/3D");
+        BM_ASSERT_EQ(input.dtype(), weight->dtype(), "Input data type mismatch");
+        BM_ASSERT_EQ(input.device(), weight->device(), "Input and weight must be on the same device");
+
+        core::Tensor ret; // (seq_len, dim_out)
+        if (!weight_transposed) {
+            ret = gemm_A_Btrans.forward(ctx, input, *weight, output, has_bias ? &bias : nullptr);
+        } else {
+            ret = gemm_A_B.forward(ctx, input, *weight);
+        }
+
+        // set name here to avoid memory allocation.
+        ret.set_name(output_name);
+        return activate(ctx, ret);
     }
 };
 
@@ -115,4 +161,41 @@ void Linear::move(Linear &other) {
     pimpl = std::move(other.pimpl);
 }
 
+bool Linear::support_fuse_gptq_gate_in(const core::Tensor &input) {
+    static int fuse_w_in = utils::get_int_env("CPM_FUSE_FF_IN", 0);
+    // auto ptr = dynamic_cast<impl::Int4GPTQ *>(pimpl.get());
+    // return ptr && fuse_w_in == 2 && ptr->use_exllama
+    //        && !ptr->act_order && !ptr->trt_kernel && ptr->qweight.numel() > 0;
+    return false;
+}
+
 Linear::~Linear() = default;
+
+core::Tensor Linear::forward(const core::Context &ctx, const core::Tensor &input, bool quant_back, Tensor *output) {
+    size_t K = input.size(-1);
+    size_t M = input.numel() / K;
+    size_t N = DistLayout::COLUMNAR == pimpl->dist_layout ? pimpl->dim_out / ctx.world_size() : pimpl->dim_out;
+    auto name1 = "Linear(" + name + ")[M=";
+    auto ev_name = logger::str_cat(name1, M, ",N=", N, ",K=", K, "]");
+    size_t flops = 2UL * K * M * N;
+    core::EventScope event_scope(ctx, ev_name, 2, flops);
+
+    Tensor ret;
+    if (input.ndim() == 2) {
+        ret = pimpl->forward(ctx, input, output_name, quant_back, output);
+    } else {
+        core::Tensor input2d = input.view({input.numel() / input.size(-1), input.size(-1)});
+        Tensor ret2d = pimpl->forward(ctx, input2d, output_name, quant_back, output);
+        auto out_shape = input.shape();
+        out_shape[out_shape.size() - 1] = ret2d.size(-1);
+        ret = ret2d.view(out_shape);
+    }
+
+    // clear layer_cache to reduce memory usage if not dual_stream
+    // ModelContext *m_ctx = const_cast<ModelContext *>(dynamic_cast<const ModelContext *>(&ctx));
+    // if (m_ctx && !m_ctx->dual_stream()) {
+    //     m_ctx->layer_cache().clear();
+    // }
+
+    return ret;
+}

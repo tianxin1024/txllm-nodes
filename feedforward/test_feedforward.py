@@ -145,7 +145,14 @@ def test_feedforward(SIZE, BATCH, SEQLEN, SCALE, TRANS):
             rtol=rtol,
             atol=atol,
         )
+
+    out = ff.forward(input.cpu().numpy())
+    print(out)
  
+    assert torch.allclose(
+        torch.from_numpy(out).to(torch.half), out_pt.cpu(), rtol=rtol, atol=atol
+    )
+
 
 
 

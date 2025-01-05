@@ -194,13 +194,41 @@ public:
         }
     }
 
+    py::array forward(py::array &input) __attribute__((visibility("hidden"))) {
+        auto buf = input.request();
+        auto ndim = input.ndim();
+        py::array_t<float> ndarray; // out
+        ndarray.resize(buf.shape);
+
+        auto ctx = engine->create_context({0});
+        bmengine::core::WithDevice device(ctx, 0);
+
+        std::vector<size_t> size;
+        for (int d = 0; d < ndim; ++d) {
+            size.push_back(buf.shape[d]);
+        }
+        auto t_input = ctx.tensor(size, bmengine::core::DataType::kHalf);
+        t_input.from_buffer(buf.ptr);
+
+        std::cout << t_input << std::endl;
+        auto out_data = md->forward(ctx, t_input);
+        std::cout << out_data << std::endl;
+
+        auto converted = model::convert_fp32(ctx, out_data);
+        converted.to_buffer(ndarray.mutable_data());
+
+        return ndarray;
+    }
+
 }; // end of class PyFeedForward
 
 void define_layer_linear(py::module_ &layers_m) {
     py::class_<PyFeedForward>(layers_m, "FeedForward")
         .def(py::init(&PyFeedForward::create))
+        .def("init_parameters", &PyFeedForward::init_parameters)
         .def("load_state_dict", &PyFeedForward::load_state_dict)
-        .def("named_parameters", &PyFeedForward::named_parameters);
+        .def("named_parameters", &PyFeedForward::named_parameters)
+        .def("forward", &PyFeedForward::forward);
 }
 
 PYBIND11_MODULE(llm_nodes, handle) {
