@@ -1,8 +1,11 @@
 #pragma once
 #include <bmengine/core/core.h>
 #include "backend/model_config.h"
+#include "backend/linear.h"
 
 using namespace bmengine;
+
+class Linear;
 
 class FeedForward : public core::Layer {
     BM_LAYER_DEF(FeedForward);
