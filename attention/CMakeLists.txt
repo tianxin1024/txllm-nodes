@@ -39,7 +39,7 @@ target_link_libraries(backend
     "-Wl,-Bsymbolic -Wl,-Bsymbolic-functions"
 )
 
-pybind11_add_module(llm_nodes layer_feedforward.cpp)
+pybind11_add_module(llm_nodes layer_attention.cpp)
 
 target_link_libraries(llm_nodes PRIVATE backend bmengine
     "-Wl,-Bsymbolic -Wl,-Bsymbolic-functions" "pthread")

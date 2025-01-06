@@ -88,9 +88,9 @@ private:
     }
 
 public:
-    // ~PyLinear() {
-    //     md = nullptr;
-    // }
+    ~PyLinear() {
+        md = nullptr;
+    }
 
     static PyLinear create(
         int dim_model,

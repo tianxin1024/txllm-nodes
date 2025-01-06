@@ -38,3 +38,5 @@ linear/build
 linear.bak
 feedforward/.cache/clangd/index
 feedforward/build
+attention/.cache/clangd/index
+attention/build

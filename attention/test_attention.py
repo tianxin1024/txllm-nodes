@@ -2,8 +2,7 @@ import math
 import torch
 import torch.nn.functional as F
 from typing import Optional, Tuple, Union
-# import build.llm_nodes
-
+from build.llm_nodes import layers
 
 def rotate_half(x):
     x1, x2 = x.chunk(2, dim=-1)
@@ -209,6 +208,7 @@ def test_attention(batch, shapes, seqlen, trans, flash_decoding):
 
     out_pt = attn_pt.forward(hidden, mask, position_bias)
     print(out_pt.shape)
+    print("===" * 20)
 
 
 if __name__ == "__main__":
