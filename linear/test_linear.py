@@ -4,7 +4,6 @@ import torch.nn.functional as F
 
 from build.llm_nodes import layers
 
-import ipdb
 
 class Linear(torch.nn.Module):
     def __init__(self, 
@@ -62,12 +61,22 @@ def test_linear(SIZE, BATCH, SEQLEN, ACTIVATION, SCALE, W_TRANS, DTYPE):
     ff = layers.Linear(SIZE[0], SIZE[1], ACTIVATION, False, SCALE, W_TRANS, 
                        "bfloat" if DTYPE == torch.bfloat16 else "half")
     # print(ff)
-    state_dict = ff_pt.state_dict()
-    weight_pt = state_dict["weight"]
-    # print(state_dict)
+    state_dict_pt = ff_pt.state_dict()
+    weight_pt = state_dict_pt["weight"]
+    print(state_dict_pt)
 
-    # ff.named_parameters()
-    ff.load_state_dict(state_dict)
+    state_dict_ff = dict([(k, v.contiguous().cpu().numpy()) for k, v in state_dict_pt.items()])
+    print(state_dict_ff)
+    ff.load_state_dict(state_dict_ff)
+
+    state_dict = ff.named_parameters()
+    print(state_dict)
+
+    for name, param in state_dict_pt.items():
+        assert name in state_dict
+        assert torch.allclose(torch.from_numpy(state_dict[name]).to(torch.half), param.cpu(), rtol=rtol, atol=atol)
+
+
 
 if __name__ == "__main__":
-    test_linear((5, 6), 4, 2, "", True, False, torch.bfloat16)
+    test_linear((5, 6), 4, 2, "", True, False, torch.half)

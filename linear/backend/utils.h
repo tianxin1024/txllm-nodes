@@ -1,11 +1,10 @@
 #pragma once
-
 #include <bmengine/core/core.h>
 
-namespace utils {
+namespace model {
 
-using namespace bmengine;
+namespace core = bmengine::core;
 
-core::DataType name_to_data_type(const std::string &name);
+core::Tensor convert_fp32(const core::Context &ctx, const core::Tensor &logits);
 
-} // namespace utils
+} // namespace model

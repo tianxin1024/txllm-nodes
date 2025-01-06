@@ -1,12 +1,7 @@
 #pragma once
 #include <bmengine/core/core.h>
-#include <pybind11/pybind11.h>
-#include <pybind11/stl.h>
-#include <pybind11/numpy.h>
-#include <ATen/ATen.h>
 
 using namespace bmengine;
-namespace nn {
 
 class Linear : public core::Layer {
     Linear() = default;
@@ -38,13 +33,9 @@ public:
 
     void move(Linear &other);
 
-    void init_parameters(
-        const core::Context &ctx, curandGenerator_t &gen, const std::string &prefix = "") override;
-
     void load_state_dict(
         const core::Context &ctx,
         const std::map<std::string, const core::Tensor> &state_dict,
         const std::string &prefix,
         bool allow_missing) override;
 };
-} // namespace nn

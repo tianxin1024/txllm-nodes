@@ -1,5 +1,6 @@
 #include "linear.h"
 #include <bmengine/core/core.h>
+#include <bmengine/functions/gemm.h>
 
 using bmengine::core::Tensor;
 using bmengine::core::DataType;
@@ -7,16 +8,9 @@ using bmengine::core::DistLayout;
 
 const std::string bmengine::core::Context::EMPTY_STR;
 
-namespace nn {
-
 class Linear::impl {
 public:
-    // class NormalLinear;
-    // class Int8Linear;
-    // class Fp8Linear;
-    // class Int4GPTQ;
-    // class GPTQMarlin;
-    // class AWQ;
+    class NormalLinear;
 
     uint32_t dim_in;
     uint32_t dim_out;
@@ -34,6 +28,45 @@ public:
     virtual ~impl() = default;
 };
 
+class Linear::impl::NormalLinear : public Linear::impl {
+public:
+    bool parallel;
+    core::DistLayout dist_layout;
+    float scale_factor;
+    std::unique_ptr<Tensor> weight;
+    Tensor bias;
+    functions::Gemm gemm_A_B;
+    functions::Gemm gemm_A_Btrans;
+
+    NormalLinear(const core::Context &ctx,
+                 uint32_t dim_in,
+                 uint32_t dim_out,
+                 std::string act_fn_type,
+                 bool scale_weights,
+                 bool weight_transposed,
+                 core::DataType dtype,
+                 bool parallel,
+                 core::DistLayout dist_layout) :
+        Linear::impl(dim_in, dim_out, act_fn_type, weight_transposed, 0, dtype),
+        parallel(parallel),
+        dist_layout(weight_transposed ? dist_layout : transpose_layout(dist_layout)),
+        scale_factor(float(scale_weights ? 1.0 / sqrtf(dim_in) : 1.0)),
+        gemm_A_B(ctx, dtype, false, false, scale_factor),
+        gemm_A_Btrans(ctx, dtype, false, true, scale_factor) {
+        std::vector<size_t> shape({
+            weight_transposed ? dim_in : dim_out, // W^T
+            weight_transposed ? dim_out : dim_in  // W
+        });
+        weight = std::make_unique<Tensor>(ctx.parameter(shape, dtype));
+        if (ctx.high_precision() >= 1) {
+            gemm_A_B.set_compute_type(CUBLAS_COMPUTE_32F);
+            gemm_A_Btrans.set_compute_type(CUBLAS_COMPUTE_32F);
+        }
+    }
+
+    ~NormalLinear() = default;
+};
+
 Linear::Linear(
     const core::Context &ctx,
     int dim_in,
@@ -46,6 +79,11 @@ Linear::Linear(
     core::DataType dtype) :
     Layer() {
     std::cout << ">>>>>>>>> Linear::Linear constructor" << std::endl;
+    auto tmp = new impl::NormalLinear(ctx, dim_in, dim_out, act_fn_type, scale_weights, weight_transposed, dtype, parallel, dist_layout);
+    add_parameter("weight", *tmp->weight);
+    pimpl = std::unique_ptr<impl>((impl *)tmp);
+
+    pimpl->dist_layout = dist_layout;
 }
 
 Linear::Linear(
@@ -75,10 +113,6 @@ void Linear::move(Linear &other) {
 
 Linear::~Linear() = default;
 
-void Linear::init_parameters(
-    const core::Context &ctx, curandGenerator_t &gen, const std::string &prefix) {
-}
-
 void Linear::load_state_dict(
     const core::Context &ctx,
     const std::map<std::string, const core::Tensor> &state_dict,
@@ -86,5 +120,3 @@ void Linear::load_state_dict(
     bool allow_missing) {
     this->prefix = prefix;
 }
-
-} // namespace nn
