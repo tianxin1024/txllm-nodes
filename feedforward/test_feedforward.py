@@ -154,7 +154,5 @@ def test_feedforward(SIZE, BATCH, SEQLEN, SCALE, TRANS):
     )
 
 
-
-
 if __name__ == "__main__":
     test_feedforward((2, 4), 2, 2, False, False)
