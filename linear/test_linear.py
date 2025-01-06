@@ -1,6 +1,7 @@
 import math
 import torch
 import torch.nn.functional as F
+import numpy as np
 
 from build.llm_nodes import layers
 
@@ -52,7 +53,6 @@ def test_linear(SIZE, BATCH, SEQLEN, ACTIVATION, SCALE, W_TRANS, DTYPE):
         rtol, atol = (1e-3, 3e-3)
 
     input = torch.randn([BATCH, SEQLEN, SIZE[0]], dtype=DTYPE, device="cuda")
-    input.requires_grad = True
 
     ff_pt = Linear(SIZE[0], SIZE[1], ACTIVATION, dtype=DTYPE, scale_before=SCALE).cuda()
     out_pt = ff_pt.forward(input)
@@ -75,6 +75,16 @@ def test_linear(SIZE, BATCH, SEQLEN, ACTIVATION, SCALE, W_TRANS, DTYPE):
     for name, param in state_dict_pt.items():
         assert name in state_dict
         assert torch.allclose(torch.from_numpy(state_dict[name]).to(torch.half), param.cpu(), rtol=rtol, atol=atol)
+
+    out = ff.forward(input.cpu().numpy())
+    print("----------------------------------------------------")
+    print(out)
+
+    assert torch.allclose(
+        torch.from_numpy(out).to(torch.half), out_pt.cpu(), rtol=rtol, atol=atol
+    )
+    print("finish done!!!")
+
 
 
 

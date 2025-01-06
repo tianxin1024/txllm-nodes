@@ -38,4 +38,9 @@ public:
         const std::map<std::string, const core::Tensor> &state_dict,
         const std::string &prefix,
         bool allow_missing) override;
+
+    core::Tensor forward(const core::Context &ctx,
+                         const core::Tensor &x,
+                         bool quant_back = true,
+                         core::Tensor *output = nullptr);
 };
