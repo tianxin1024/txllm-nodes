@@ -219,7 +219,14 @@ def test_attention(batch, shapes, seqlen, trans, flash_decoding):
     attn.load_state_dict(state_dict_attn)
     state_dict = attn.named_parameters()
     print("****" * 20)
-    print(state_dict)
+    # print(hidden)
+    # print(state_dict)
+    out = attn.forward(hidden.cpu().numpy(), 
+                       mask.cpu().numpy(), 
+                       position_bias.cpu().numpy(),
+                       seqlens_q.cpu().numpy(),
+                       seqlens_kv.cpu().numpy())
+    # print(out)
 
 
 

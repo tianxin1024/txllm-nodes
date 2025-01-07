@@ -6,15 +6,31 @@
 #include "backend/model_config.h"
 #include "backend/attention.h"
 #include "backend/utils.h"
+// #include "backend/transformer_buffer.h"
 
 using namespace bmengine;
+// using namespace kvcache;
 namespace py = pybind11;
 
 namespace bind {
+
+const core::Tensor numpy_to_tensor(const core::Context &ctx, const py::array &arr);
 void load_state_dict(bmengine::core::Context &ctx,
                      const std::map<std::string, py::array> &state_dict,
                      std::map<const std::string, bmengine::core::Tensor *> named_params,
                      bool parallel = false);
+
+const core::Tensor numpy_to_tensor(const core::Context &ctx, const py::array &arr) {
+    py::buffer_info buf = arr.request();
+
+    std::vector<size_t> size;
+    for (int d = 0; d < buf.ndim; ++d) {
+        size.push_back(buf.shape[d]);
+    }
+    auto ret = ctx.tensor(size, bmengine::core::DataType::kHalf);
+    ret.from_buffer(buf.ptr);
+    return std::move(ret);
+}
 
 void load_state_dict(bmengine::core::Context &ctx,
                      const std::map<std::string, py::array> &state_dict,
@@ -167,11 +183,6 @@ public:
         auto ctx = engine->create_context({0});
         auto named_params = md->named_parameters("", true);
         bmengine::core::WithDevice device(ctx, 0);
-
-        std::cout << "---------------------------------------" << std::endl;
-        for (auto it : named_params) {
-            std::cout << ">>>>>>>> it.first: " << it.first << std::endl;
-        }
         bind::load_state_dict(ctx, state_dict, named_params);
     }
 
@@ -193,14 +204,44 @@ public:
             return result;
         }
     }
+
+    py::array forward(py::array &input, py::array &mask, py::array &position,
+                      py::array &seqlens_q, py::array &seqlens_kv) __attribute__((visibility("hidden"))) {
+        py::array_t<float> output; // out
+        auto buf = input.request();
+        output.resize(buf.shape);
+
+        auto ctx = engine->create_context({0});
+        bmengine::core::WithDevice device(ctx, 0);
+
+        auto t_input = bind::numpy_to_tensor(ctx, input);
+        auto t_mask = bind::numpy_to_tensor(ctx, mask);
+        auto t_position = bind::numpy_to_tensor(ctx, position);
+        // auto t_seqlens_q = bind::numpy_to_tensor(ctx, seqlens_q);
+        // auto t_seqlens_kv = bind::numpy_to_tensor(ctx, seqlens_kv);
+
+        std::cout << ">>>>>>>>>>>> t_input: >>>>>>>>>>>>>>>>>>>>>>>>>>" << std::endl;
+        std::cout << t_input << std::endl;
+
+        // model::ModelConfig model_config("", 0, dim_model, num_heads, dim_head, 0, 0, 1e-6,
+        //                                 -1, {}, scale_weights, weight_transposed, 0, 1.0, 1.0,
+        //                                 bmengine::core::DataType::kHalf);
+
+        // std::cout << "batch size: " << t_input.size(0) << std::endl;
+
+        // int len_buf = round_up(t_input.size(1), 32);
+        // int len_buf = t_mask.size(-1);
+        // TransformerBuffer buf_k(t_input.size(0), 1, model_config.num_heads, model_config.dim_head,
+        //                         bmengine::core::DataType::kHalf, true, t_seqlens_kv.numel() != 0);
+    }
 };
 
 void define_layer_linear(py::module_ &layers_m) {
     py::class_<PyAttention>(layers_m, "Attention")
         .def(py::init(&PyAttention::create))
         .def("load_state_dict", &PyAttention::load_state_dict)
-        .def("named_parameters", &PyAttention::named_parameters);
-    // .def("forward", &PyAttention::forward);
+        .def("named_parameters", &PyAttention::named_parameters)
+        .def("forward", &PyAttention::forward);
 }
 
 PYBIND11_MODULE(llm_nodes, handle) {
