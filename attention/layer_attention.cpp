@@ -165,7 +165,7 @@ public:
     void load_state_dict(const std::map<std::string, py::array> &state_dict)
         __attribute__((visibility("default"))) {
         auto ctx = engine->create_context({0});
-        auto named_params = md->named_parameters("attn", true);
+        auto named_params = md->named_parameters("", true);
         bmengine::core::WithDevice device(ctx, 0);
 
         std::cout << "---------------------------------------" << std::endl;
@@ -182,7 +182,7 @@ public:
         {
             auto ctx = engine->create_context({0});
             bmengine::core::WithDevice device(ctx, 0);
-            auto named_params = md->named_parameters("attn", true);
+            auto named_params = md->named_parameters("", true);
 
             for (auto it : named_params) {
                 py::array_t<float> ndarray(it.second->size());
