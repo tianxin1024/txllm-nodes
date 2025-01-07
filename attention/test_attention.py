@@ -210,6 +210,18 @@ def test_attention(batch, shapes, seqlen, trans, flash_decoding):
     print(out_pt.shape)
     print("===" * 20)
 
+    attn = layers.Attention(dim_model, num_heads, dim_head, "rotary", False, True, trans, False)
+    print(attn)
+
+    state_dict_attn = dict([(k, (v.transpose(0, 1) if trans else v).contiguous().cpu().numpy())
+                          for k, v in state_dict_pt.items()])
+    print(state_dict_attn)
+    attn.load_state_dict(state_dict_attn)
+    state_dict = attn.named_parameters()
+    print("****" * 20)
+    print(state_dict)
+
+
 
 if __name__ == "__main__":
     test_attention(4, (4, 16), 17, False, False)
