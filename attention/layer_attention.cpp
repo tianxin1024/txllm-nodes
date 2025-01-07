@@ -6,10 +6,10 @@
 #include "backend/model_config.h"
 #include "backend/attention.h"
 #include "backend/utils.h"
-// #include "backend/transformer_buffer.h"
+#include "backend/transformer_buffer.h"
 
 using namespace bmengine;
-// using namespace kvcache;
+using namespace kvcache;
 namespace py = pybind11;
 
 namespace bind {
@@ -217,22 +217,26 @@ public:
         auto t_input = bind::numpy_to_tensor(ctx, input);
         auto t_mask = bind::numpy_to_tensor(ctx, mask);
         auto t_position = bind::numpy_to_tensor(ctx, position);
-        // auto t_seqlens_q = bind::numpy_to_tensor(ctx, seqlens_q);
+        auto t_seqlens_q = bind::numpy_to_tensor(ctx, seqlens_q);
         // auto t_seqlens_kv = bind::numpy_to_tensor(ctx, seqlens_kv);
 
-        std::cout << ">>>>>>>>>>>> t_input: >>>>>>>>>>>>>>>>>>>>>>>>>>" << std::endl;
-        std::cout << t_input << std::endl;
+        // std::cout << ">>>>>>>>>>>> t_input: >>>>>>>>>>>>>>>>>>>>>>>>>>" << std::endl;
+        // std::cout << t_input << std::endl;
 
-        // model::ModelConfig model_config("", 0, dim_model, num_heads, dim_head, 0, 0, 1e-6,
-        //                                 -1, {}, scale_weights, weight_transposed, 0, 1.0, 1.0,
-        //                                 bmengine::core::DataType::kHalf);
+        model::ModelConfig model_config("", 0, dim_model, num_heads, dim_head, 0, 0, 1e-6,
+                                        -1, {}, scale_weights, weight_transposed, 0, 1.0, 1.0,
+                                        bmengine::core::DataType::kHalf);
 
-        // std::cout << "batch size: " << t_input.size(0) << std::endl;
+        std::cout << "batch size: " << t_input.size(0) << std::endl;
 
         // int len_buf = round_up(t_input.size(1), 32);
-        // int len_buf = t_mask.size(-1);
-        // TransformerBuffer buf_k(t_input.size(0), 1, model_config.num_heads, model_config.dim_head,
-        //                         bmengine::core::DataType::kHalf, true, t_seqlens_kv.numel() != 0);
+        int len_buf = t_mask.size(-1);
+        TransformerBuffer buf_k(t_input.size(0), 1, model_config.num_heads, model_config.dim_head,
+                                bmengine::core::DataType::kHalf, true, false);
+        TransformerBuffer buf_v(t_input.size(0), 1, model_config.num_heads, model_config.dim_head,
+                                bmengine::core::DataType::kHalf, true, false);
+        buf_k.resize(ctx, len_buf);
+        buf_v.resize(ctx, len_buf);
     }
 };
 
