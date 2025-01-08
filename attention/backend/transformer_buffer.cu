@@ -119,6 +119,9 @@ void TransformerBuffer::resize(const core::Context &ctx, size_t new_length) {
             } else {
                 shape = {num_heads, new_length, dim_head};
             }
+            if (batch_size > 0) {
+                shape.insert(shape.begin(), size_t(batch_size));
+            }
             buffer[i] = ctx.tensor(shape, dtype);
             functions::zeros_(ctx, buffer[i]);
         } else {

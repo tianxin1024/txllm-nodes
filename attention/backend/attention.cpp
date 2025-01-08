@@ -78,7 +78,78 @@ public:
         gemm_score_v(ctx, dtype, false, false),
         transpose(ctx) {
     }
-};
+
+    virtual core::Tensor forward(const core::Context &ctx,
+                                 const core::Tensor &hidden_q,      // (batch?, len_q, dim_model)
+                                 const core::Tensor &mask,          // (batch?, len_q, len_buf) int8
+                                 const core::Tensor &position_bias, // if relative (batch, num_head, len_q, len_buf) else if rotary (len_q)
+                                 const core::Tensor &seqlens_q,     // (batch?, 1) int32
+                                 const core::Tensor &seqlens_kv,    // (batch?, 1)  int32
+                                 core::Tensor *past_k,              // (batch, num_heads, len_buf, dim_head)
+                                 core::Tensor *past_v,              // (batch, num_heads, len_buf, dim_head)
+                                 const core::Tensor *block_table,   // (batch, blocks_per_seq)
+                                 const core::Tensor *placement,     // (batch? , len_q)
+                                 core::Tensor *output) {
+        if (seqlens_kv.numel() == 0) {
+            core::EventScope event_scope(ctx, "Attention", 1);
+            return forward_BHSD(ctx, hidden_q, mask, position_bias, past_k, past_v, placement);
+        }
+    }
+
+    int get_event_level(const core::Context &ctx) {
+        if (ctx.current_layer() == 1000 && ctx.active_device() == 0 && ctx.rank() == 0) {
+            return 0;
+        }
+        return 2;
+    }
+
+    core::Tensor forward_BHSD(const core::Context &ctx,
+                              const core::Tensor &hidden_q,      // (batch?, len_q, dim_model)
+                              const core::Tensor &mask,          // (batch?, len_q, len_buf) int8
+                              const core::Tensor &position_bias, // if relative (batch, num_head, len_q, len_buf) else if rotary (len_q)
+                              core::Tensor *past_k,              // (batch, num_heads, len_buf, dim_head)
+                              core::Tensor *past_v,              // (batch, num_heads, len_buf, dim_head)
+                              const core::Tensor *placement) {
+        int event_level = get_event_level(ctx);
+
+        size_t batch = (mask.ndim() == 2) ? 1 : mask.size(0);
+        uint32_t len_q = mask.size(-2);
+        uint32_t len_buf = mask.size(-1);
+
+        std::cout << "{batch, num_kv_heads, len_buf, dim_head}: "
+                  << "{" << batch << ", " << num_kv_heads << ", " << len_buf << ", " << dim_head << "}" << std::endl;
+
+        std::cout << "past_k info: " << past_k->info() << std::endl;
+
+        // const core::Tensor &key_buf =
+        //     past_k == nullptr ? ctx.tensor({batch, num_kv_heads, len_buf, dim_head}, dtype) :
+        //                         past_k->view({batch, num_kv_heads, len_buf, dim_head});
+        // const core::Tensor &val_buf =
+        //     past_v == nullptr ? ctx.tensor({batch, num_kv_heads, len_buf, dim_head}, dtype) :
+        //                         past_v->view({batch, num_kv_heads, len_buf, dim_head});
+
+        // int active_dev = ctx.active_device();
+        // BM_ASSERT(active_dev == key_buf.device(), "Invalid past_k device");
+        // BM_ASSERT(active_dev == val_buf.device(), "Invalid past_v device");
+        // if (placement != nullptr) {
+        //     BM_ASSERT(active_dev == placement->device(), "Invalid placement device");
+        // }
+
+        // core::Tensor h_q = project_q(ctx, hidden_q); // (batch?, len_q, num_heads * dim_head)
+        // core::Tensor h_k = project_k(ctx, hidden_q); // (batch?, len_q, num_kv_heads * dim_head)
+        // core::Tensor h_v = project_v(ctx, hidden_q); // (batch?, len_q, num_kv_heads * dim_head)
+
+        // if (pos_bias_type == "rotary") {
+        //     ctx.recordEvent("rotary", event_level);
+        //     auto h_qk = rotary_embedding(ctx, position_bias, h_q, h_k);
+        //     h_q = std::get<0>(h_qk);
+        //     h_k = std::get<1>(h_qk);
+        // }
+
+        // cudaStream_t stream = ctx.current_stream()->ptr;
+    }
+
+}; // end of class Attention::impl::NormalImp
 
 Attention::Attention(const core::Context &ctx, model::ModelConfig cfg, model::QuantConfig quant_cfg, bool parallel) :
     core::Layer() {
@@ -114,16 +185,27 @@ Attention::Attention(const core::Context &ctx, model::ModelConfig cfg, model::Qu
 Attention::~Attention() = default;
 
 core::Tensor Attention::forward(const core::Context &ctx,
-                                const core::Tensor &inp,           // (len_q, dim_model)
+                                const core::Tensor &hidden_q,      // (len_q, dim_model)
                                 const core::Tensor &mask,          // (len_q, len_buf)
                                 const core::Tensor &position_bias, // if relative (num_head, len_q, len_buf) else if rotary (len_q)
                                 const core::Tensor &seqlens_q,     // (batch?, 1,)  int32
                                 const core::Tensor &seqlens_kv,    // (batch?, 1,)  int32
-                                const core::Tensor *past_k,        // (num_head, len_buf, dim_head)
-                                const core::Tensor *past_v,        // (num_head, len_buf, dim_head)
+                                const core::Tensor *c_past_k,      // (num_head, len_buf, dim_head)
+                                const core::Tensor *c_past_v,      // (num_head, len_buf, dim_head)
                                 const core::Tensor *block_table,   // (batch_size, block_per_seq)
                                 const core::Tensor *placement,     // (batch?, len_q) int32
                                 core::Tensor *output) {
     ModelContext *m_ctx = dynamic_cast<ModelContext *>(const_cast<core::Context *>(&ctx));
+    // if (m_ctx && m_ctx->dyn_batch()) {
+    //     return pimpl->dynamic_batch_forward(*m_ctx, hidden_q, position_bias, output);
+    // }
+
+    core::Tensor *past_k = const_cast<core::Tensor *>(c_past_k);
+    core::Tensor *past_v = const_cast<core::Tensor *>(c_past_v);
+    std::cout << "past_k info: " << past_k->info() << std::endl;
+
+    impl::NormalImpl *p = dynamic_cast<impl::NormalImpl *>(pimpl.get());
+    return p->forward(ctx, hidden_q, mask, position_bias, seqlens_q, seqlens_kv,
+                      past_k, past_v, block_table, placement, output);
     std::cout << "-========== code line ====================" << std::endl;
 }
