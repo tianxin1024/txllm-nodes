@@ -22,6 +22,9 @@ void load_state_dict(bmengine::core::Context &ctx,
 
 const core::Tensor numpy_to_tensor(const core::Context &ctx, const py::array &arr) {
     py::buffer_info buf = arr.request();
+    if (buf.size == 0) {
+        return std::move(core::Tensor());
+    }
 
     std::vector<size_t> size;
     for (int d = 0; d < buf.ndim; ++d) {
@@ -218,7 +221,7 @@ public:
         auto t_mask = bind::numpy_to_tensor(ctx, mask);
         auto t_position = bind::numpy_to_tensor(ctx, position);
         auto t_seqlens_q = bind::numpy_to_tensor(ctx, seqlens_q);
-        // auto t_seqlens_kv = bind::numpy_to_tensor(ctx, seqlens_kv);
+        auto t_seqlens_kv = bind::numpy_to_tensor(ctx, seqlens_kv);
 
         // std::cout << ">>>>>>>>>>>> t_input: >>>>>>>>>>>>>>>>>>>>>>>>>>" << std::endl;
         // std::cout << t_input << std::endl;
@@ -237,6 +240,8 @@ public:
                                 bmengine::core::DataType::kHalf, true, false);
         buf_k.resize(ctx, len_buf);
         buf_v.resize(ctx, len_buf);
+        // auto res = md->forward(ctx, t_input, t_mask, t_position, t_seqlens_q, &(buf_k[0]),
+        //                        &(buf_v[0]), nullptr, nullptr, nullptr);
     }
 };
 
