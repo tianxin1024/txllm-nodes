@@ -3,10 +3,12 @@
 #include "backend/attention.h"
 #include "backend/linear.h"
 #include "backend/rotary_embedding.h"
+#include "backend/model_context.h"
 
 using namespace bmengine;
 using bmengine::core::DataType;
 using bmengine::core::DistLayout;
+using model::ModelContext;
 
 class Attention::impl {
 public:
@@ -110,3 +112,18 @@ Attention::Attention(const core::Context &ctx, model::ModelConfig cfg, model::Qu
 }
 
 Attention::~Attention() = default;
+
+core::Tensor Attention::forward(const core::Context &ctx,
+                                const core::Tensor &inp,           // (len_q, dim_model)
+                                const core::Tensor &mask,          // (len_q, len_buf)
+                                const core::Tensor &position_bias, // if relative (num_head, len_q, len_buf) else if rotary (len_q)
+                                const core::Tensor &seqlens_q,     // (batch?, 1,)  int32
+                                const core::Tensor &seqlens_kv,    // (batch?, 1,)  int32
+                                const core::Tensor *past_k,        // (num_head, len_buf, dim_head)
+                                const core::Tensor *past_v,        // (num_head, len_buf, dim_head)
+                                const core::Tensor *block_table,   // (batch_size, block_per_seq)
+                                const core::Tensor *placement,     // (batch?, len_q) int32
+                                core::Tensor *output) {
+    ModelContext *m_ctx = dynamic_cast<ModelContext *>(const_cast<core::Context *>(&ctx));
+    std::cout << "-========== code line ====================" << std::endl;
+}

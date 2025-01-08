@@ -86,6 +86,21 @@ TransformerBuffer::TransformerBuffer(int batch_size,
 TransformerBuffer::~TransformerBuffer() {
 }
 
+void TransformerBuffer::check_layer(int i) const {
+    BM_ASSERT(i >= 0 && i < num_layers,
+              "Invalid layer index: i must in [0, " + std::to_string(num_layers) + "), but got " + std::to_string(i));
+}
+
+const core::Tensor &TransformerBuffer::operator[](int i) const {
+    check_layer(i);
+    return buffer[i];
+}
+
+core::Tensor &TransformerBuffer::operator[](int i) {
+    check_layer(i);
+    return buffer[i];
+}
+
 void TransformerBuffer::resize(const core::Context &ctx, size_t new_length) {
     BM_ASSERT_EQ(layer_devices.size(), (size_t)(num_layers), "Invalid layer_devices");
     std::cout << "TransformerBuffer::resize: new_length=" << new_length << "\n";

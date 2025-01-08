@@ -239,10 +239,10 @@ public:
         TransformerBuffer buf_v(t_input.size(0), 1, model_config.num_heads, model_config.dim_head,
                                 bmengine::core::DataType::kHalf, true, t_seqlens_kv.numel() != 0);
         buf_k.resize(ctx, len_buf);
-        std::cout << ">>>>>>>>>>>> forward >>>>>>>>>>>>>>>>>>>>>>>>>>" << std::endl;
         buf_v.resize(ctx, len_buf);
-        // auto res = md->forward(ctx, t_input, t_mask, t_position, t_seqlens_q, &(buf_k[0]),
-        //                        &(buf_v[0]), nullptr, nullptr, nullptr);
+        std::cout << "=============== start inference ================================ " << std::endl;
+        auto res = md->forward(ctx, t_input, t_mask, t_position, t_seqlens_q, t_seqlens_kv,
+                               &(buf_k[0]), &(buf_v[0]), nullptr, nullptr, nullptr);
     }
 };
 

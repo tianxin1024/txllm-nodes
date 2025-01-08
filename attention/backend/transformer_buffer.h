@@ -33,6 +33,12 @@ public:
     TransformerBuffer(const KVCacheConfig &config);
     ~TransformerBuffer();
 
+    const core::Tensor &operator[](int i) const override;
+    core::Tensor &operator[](int i) override;
+    const core::Tensor &get_layer(int i) const {
+        return this->operator[](i);
+    }
+
     void resize(const core::Context &ctx, size_t new_length) override;
 }; // end of class TransformerBuffer
 
