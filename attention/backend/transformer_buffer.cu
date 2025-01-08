@@ -76,6 +76,11 @@ TransformerBuffer::TransformerBuffer(int batch_size,
                                      bool parallel,
                                      bool BSHD) :
     KVCache(batch_size, num_layers, num_heads, dim_head, dtype, parallel, BSHD) {
+    BM_ASSERT(is_dyn_batch() || batch_size > 0, "batch_size must be greater than 0");
+    BM_ASSERT(num_layers > 0, "num_layers must be greater than 0");
+    BM_ASSERT(num_heads > 0, "num_heads must be greater than 0");
+    BM_ASSERT(dim_head > 0, "dim_head must be greater than 0");
+    buffer.resize(num_layers);
 }
 
 TransformerBuffer::~TransformerBuffer() {
@@ -83,7 +88,7 @@ TransformerBuffer::~TransformerBuffer() {
 
 void TransformerBuffer::resize(const core::Context &ctx, size_t new_length) {
     BM_ASSERT_EQ(layer_devices.size(), (size_t)(num_layers), "Invalid layer_devices");
-    // std::cout << "TransformerBuffer::resize: new_length=" << new_length << "\n";
+    std::cout << "TransformerBuffer::resize: new_length=" << new_length << "\n";
 
     if (is_dyn_batch()) {
         resize_dyn_batch(ctx, new_length);
