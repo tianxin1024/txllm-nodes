@@ -228,8 +228,6 @@ public:
                                         -1, {}, scale_weights, weight_transposed, 0, 1.0, 1.0,
                                         bmengine::core::DataType::kHalf);
 
-        std::cout << "batch size: " << t_input.size(0) << std::endl;
-
         // int len_buf = round_up(t_input.size(1), 32);
         int len_buf = t_mask.size(-1);
         TransformerBuffer buf_k(t_input.size(0), 1, model_config.num_heads, model_config.dim_head,
@@ -240,7 +238,6 @@ public:
         buf_v.resize(ctx, len_buf);
         auto res = md->forward(ctx, t_input, t_mask, t_position, t_seqlens_q, t_seqlens_kv,
                                &(buf_k[0]), &(buf_v[0]), nullptr, nullptr, nullptr);
-        std::cout << "=============== start inference ================================ " << std::endl;
 
         auto converted = model::convert_fp32(ctx, res);
         converted.to_buffer(output.mutable_data());

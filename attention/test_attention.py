@@ -144,6 +144,9 @@ class Attention(torch.nn.Module):
         h_k = self.project_k(hidden_q)
         h_v = self.project_v(hidden_q)
 
+        # print(">>> h_q shape:", h_q.shape)
+        # print(h_q)
+
         h_q = h_q.view(batch_size, len_q, self.num_heads, self.dim_head).permute(0, 2, 1, 3)
         h_k = h_k.view(batch_size, len_q, self.num_heads, self.dim_head).permute(0, 2, 1, 3)
         h_v = h_v.view(batch_size, len_q, self.num_heads, self.dim_head).permute(0, 2, 1, 3)
@@ -152,6 +155,8 @@ class Attention(torch.nn.Module):
             # b h s d
             h_q, h_k = self.position_bias(h_q, h_k)
 
+        print(">>> h_q shape:", h_q.shape)
+        print(h_q[0, :, :, :])
         # res = h_v.permute(0, 2, 1, 3)
         # print("h_v: ", res.shape, res)
         # (b, n_h, len_q, d_h) @ (b, n_h, d_h, len_k) -> (b, n_h, len_q, len_k)
@@ -165,11 +170,12 @@ class Attention(torch.nn.Module):
 
         score = self.softmax(score)
 
-        # print(score)
-
         score = torch.masked_fill(score,
             attention_mask.view(batch_size, 1, len_q, len_q) == False,
             torch.scalar_tensor(0, device=score.device, dtype=score.dtype),)
+
+        # print(">>> score shape:", score.shape)
+        # print(score)
 
         if self.dropout is not None:
             score = self.dropout(score)
@@ -195,7 +201,7 @@ def test_attention(batch, shapes, seqlen, trans, flash_decoding):
     position_bias = (torch.arange(seqlen, dtype=torch.int32, device="cuda",).repeat((batch, 1)))
     mask = ((torch.arange(seqlen, device="cuda") <= torch.arange(seqlen, device="cuda").view(-1, 1))
             .to(torch.int8).repeat(batch, 1).view(batch, seqlen, seqlen))
-    print(mask.shape)
+    # print(mask.shape)
     seqlens_q = torch.cat([torch.tensor([0], dtype=torch.int32, device="cuda"),
                            torch.cumsum(torch.amax(position_bias, dim=-1) + 1, dim=-1, dtype=torch.int32),])
     if flash_decoding:
@@ -207,20 +213,18 @@ def test_attention(batch, shapes, seqlen, trans, flash_decoding):
     state_dict_pt = attn_pt.state_dict()
 
     out_pt = attn_pt.forward(hidden, mask, position_bias)
-    print(out_pt.shape)
+    # print(out_pt.shape)
     print("===" * 20)
 
     attn = layers.Attention(dim_model, num_heads, dim_head, "rotary", False, True, trans, False)
-    print(attn)
+    # print(attn)
 
     state_dict_attn = dict([(k, (v.transpose(0, 1) if trans else v).contiguous().cpu().numpy())
                           for k, v in state_dict_pt.items()])
-    print(state_dict_attn)
+    # print(state_dict_attn)
     attn.load_state_dict(state_dict_attn)
     state_dict = attn.named_parameters()
     print("****" * 20)
-    # print(hidden)
-    # print(state_dict)
     out = attn.forward(hidden.cpu().numpy(), 
                        mask.cpu().numpy(), 
                        position_bias.cpu().numpy(),
@@ -228,13 +232,13 @@ def test_attention(batch, shapes, seqlen, trans, flash_decoding):
                        seqlens_kv.cpu().numpy())
 
     out = torch.from_numpy(out).to(torch.half).cuda("cuda:0")
-    print(out[2])
-    print(out_pt[2])
-    print(out.shape)
-    print(out_pt.shape)
+    # print(out)
+    # print(out_pt)
+    # print(out.shape)
+    # print(out_pt.shape)
+    # TODO have a bug out中的第3，4维数据不一致
     print((out - out_pt).abs().max().item())
     assert torch.allclose(out[1], out_pt[1], rtol=rtol, atol=atol)
-
 
 
 if __name__ == "__main__":

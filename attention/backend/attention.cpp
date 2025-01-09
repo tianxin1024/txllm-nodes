@@ -96,6 +96,8 @@ public:
         if (seqlens_kv.numel() == 0) {
             core::EventScope event_scope(ctx, "Attention", 1);
             return forward_BHSD(ctx, hidden_q, mask, position_bias, past_k, past_v, placement);
+        } else {
+            return core::Tensor();
         }
     }
 
@@ -139,12 +141,17 @@ public:
         core::Tensor h_k = project_k(ctx, hidden_q); // (batch?, len_q, num_kv_heads * dim_head)
         core::Tensor h_v = project_v(ctx, hidden_q); // (batch?, len_q, num_kv_heads * dim_head)
 
+        // std::cout << "h_q info: " << h_q.info() << std::endl;
+        // std::cout << h_q << std::endl;
+
         if (pos_bias_type == "rotary") {
             ctx.recordEvent("rotary", event_level);
             auto h_qk = rotary_embedding(ctx, position_bias, h_q, h_k);
             h_q = std::get<0>(h_qk);
             h_k = std::get<1>(h_qk);
         }
+        std::cout << "h_q info: " << h_q.info() << std::endl;
+        std::cout << h_q << std::endl;
 
         cudaStream_t stream = ctx.current_stream()->ptr;
         ctx.recordEvent("copy_to_buffer,K&V", event_level);
@@ -172,6 +179,9 @@ public:
         core::Tensor attn_score_q = attn_score.view({batch, num_heads, len_q, len_buf});
         nn::attn_softmax(ctx, attn_scale, attn_score_q, mask, pos_bias);
 
+        // std::cout << "score info: " << attn_score_q.info() << std::endl;
+        // std::cout << attn_score_q << std::endl;
+
         // Score * V
         ctx.recordEvent("Score*V", event_level);
         core::Tensor attn_res = gemm_score_v(
@@ -186,6 +196,9 @@ public:
         ctx.recordEvent("End>transposeAV", event_level);
 
         ShapeT attn_value_shape = (mask.ndim() == 2) ? ShapeT({len_q, num_heads * dim_head}) : ShapeT({batch, len_q, num_heads * dim_head});
+
+        // auto output = attn_out(ctx, attn_value_t.view(attn_value_shape));
+        // std::cout << output << std::endl;
 
         return attn_out(ctx, attn_value_t.view(attn_value_shape));
     }
@@ -247,5 +260,4 @@ core::Tensor Attention::forward(const core::Context &ctx,
     impl::NormalImpl *p = dynamic_cast<impl::NormalImpl *>(pimpl.get());
     return p->forward(ctx, hidden_q, mask, position_bias, seqlens_q, seqlens_kv,
                       past_k, past_v, block_table, placement, output);
-    std::cout << "-========== code line ====================" << std::endl;
 }
