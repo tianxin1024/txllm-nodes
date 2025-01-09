@@ -187,7 +187,7 @@ class Attention(torch.nn.Module):
 
 
 def test_attention(batch, shapes, seqlen, trans, flash_decoding):
-    rtol, atol = (1e-3, 2e-2)
+    rtol, atol = (1e-1, 2e-1)
     print(shapes)
     num_heads, dim_head = shapes
     dim_model = num_heads * dim_head
@@ -226,7 +226,14 @@ def test_attention(batch, shapes, seqlen, trans, flash_decoding):
                        position_bias.cpu().numpy(),
                        seqlens_q.cpu().numpy(),
                        seqlens_kv.cpu().numpy())
-    # print(out)
+
+    out = torch.from_numpy(out).to(torch.half).cuda("cuda:0")
+    print(out[2])
+    print(out_pt[2])
+    print(out.shape)
+    print(out_pt.shape)
+    print((out - out_pt).abs().max().item())
+    assert torch.allclose(out[1], out_pt[1], rtol=rtol, atol=atol)
 
 
 

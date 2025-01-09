@@ -11,6 +11,7 @@ using namespace bmengine;
 using bmengine::core::DataType;
 using bmengine::core::DistLayout;
 using model::ModelContext;
+typedef std::vector<size_t> ShapeT;
 
 class Attention::impl {
 public:
@@ -170,6 +171,23 @@ public:
         const core::Tensor &pos_bias = pos_bias_type == "relative" ? position_bias : core::Tensor();
         core::Tensor attn_score_q = attn_score.view({batch, num_heads, len_q, len_buf});
         nn::attn_softmax(ctx, attn_scale, attn_score_q, mask, pos_bias);
+
+        // Score * V
+        ctx.recordEvent("Score*V", event_level);
+        core::Tensor attn_res = gemm_score_v(
+            ctx,
+            attn_score, // ColMajor: (batch, num_kv_heads, len_buf, num_head_groups * len_q)
+            val_buf     // ColMajor: (batch, num_kv_heads, dim_head, len_buf)
+        );              // (batch, num_kv_heads, num_heads_groups * len_q, dim_head)
+
+        // transpose: (batch, num_heads len_q, dim_head) => (batch, len_q, num_heads, dim_head)
+        ctx.recordEvent("transposeAV", event_level);
+        core::Tensor attn_value_t = bmengine::functions::transpose_2_1(ctx, attn_res.view({batch, num_heads, len_q, dim_head}));
+        ctx.recordEvent("End>transposeAV", event_level);
+
+        ShapeT attn_value_shape = (mask.ndim() == 2) ? ShapeT({len_q, num_heads * dim_head}) : ShapeT({batch, len_q, num_heads * dim_head});
+
+        return attn_out(ctx, attn_value_t.view(attn_value_shape));
     }
 
 }; // end of class Attention::impl::NormalImp
