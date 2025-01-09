@@ -85,8 +85,6 @@ private:
     bool weight_transposed;
     bool parallel;
 
-    // auto attn = PyAttention(dim_model, num_heads, dim_head, pos_bias_type, quant, scale_weights,
-    //                         weight_transposed, parallel);
     PyAttention(int dim_model,
                 int num_heads,
                 int dim_head,

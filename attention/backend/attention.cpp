@@ -4,6 +4,8 @@
 #include "backend/linear.h"
 #include "backend/rotary_embedding.h"
 #include "backend/model_context.h"
+#include "backend/transformer_buffer.h"
+#include "backend/attention_kernel.h"
 
 using namespace bmengine;
 using bmengine::core::DataType;
@@ -116,37 +118,58 @@ public:
         uint32_t len_q = mask.size(-2);
         uint32_t len_buf = mask.size(-1);
 
-        std::cout << "{batch, num_kv_heads, len_buf, dim_head}: "
-                  << "{" << batch << ", " << num_kv_heads << ", " << len_buf << ", " << dim_head << "}" << std::endl;
+        // std::cout << "past_k info: " << past_k->info() << std::endl;
 
-        std::cout << "past_k info: " << past_k->info() << std::endl;
+        const core::Tensor &key_buf =
+            past_k == nullptr ? ctx.tensor({batch, num_kv_heads, len_buf, dim_head}, dtype) :
+                                past_k->view({batch, num_kv_heads, len_buf, dim_head});
+        const core::Tensor &val_buf =
+            past_v == nullptr ? ctx.tensor({batch, num_kv_heads, len_buf, dim_head}, dtype) :
+                                past_v->view({batch, num_kv_heads, len_buf, dim_head});
 
-        // const core::Tensor &key_buf =
-        //     past_k == nullptr ? ctx.tensor({batch, num_kv_heads, len_buf, dim_head}, dtype) :
-        //                         past_k->view({batch, num_kv_heads, len_buf, dim_head});
-        // const core::Tensor &val_buf =
-        //     past_v == nullptr ? ctx.tensor({batch, num_kv_heads, len_buf, dim_head}, dtype) :
-        //                         past_v->view({batch, num_kv_heads, len_buf, dim_head});
+        int active_dev = ctx.active_device();
+        BM_ASSERT(active_dev == key_buf.device(), "Invalid past_k device");
+        BM_ASSERT(active_dev == val_buf.device(), "Invalid past_v device");
+        if (placement != nullptr) {
+            BM_ASSERT(active_dev == placement->device(), "Invalid placement device");
+        }
 
-        // int active_dev = ctx.active_device();
-        // BM_ASSERT(active_dev == key_buf.device(), "Invalid past_k device");
-        // BM_ASSERT(active_dev == val_buf.device(), "Invalid past_v device");
-        // if (placement != nullptr) {
-        //     BM_ASSERT(active_dev == placement->device(), "Invalid placement device");
-        // }
+        core::Tensor h_q = project_q(ctx, hidden_q); // (batch?, len_q, num_heads * dim_head)
+        core::Tensor h_k = project_k(ctx, hidden_q); // (batch?, len_q, num_kv_heads * dim_head)
+        core::Tensor h_v = project_v(ctx, hidden_q); // (batch?, len_q, num_kv_heads * dim_head)
 
-        // core::Tensor h_q = project_q(ctx, hidden_q); // (batch?, len_q, num_heads * dim_head)
-        // core::Tensor h_k = project_k(ctx, hidden_q); // (batch?, len_q, num_kv_heads * dim_head)
-        // core::Tensor h_v = project_v(ctx, hidden_q); // (batch?, len_q, num_kv_heads * dim_head)
+        if (pos_bias_type == "rotary") {
+            ctx.recordEvent("rotary", event_level);
+            auto h_qk = rotary_embedding(ctx, position_bias, h_q, h_k);
+            h_q = std::get<0>(h_qk);
+            h_k = std::get<1>(h_qk);
+        }
 
-        // if (pos_bias_type == "rotary") {
-        //     ctx.recordEvent("rotary", event_level);
-        //     auto h_qk = rotary_embedding(ctx, position_bias, h_q, h_k);
-        //     h_q = std::get<0>(h_qk);
-        //     h_k = std::get<1>(h_qk);
-        // }
+        cudaStream_t stream = ctx.current_stream()->ptr;
+        ctx.recordEvent("copy_to_buffer,K&V", event_level);
+        h_k = h_k.view({batch, len_q, num_kv_heads, dim_head});
+        h_v = h_v.view({batch, len_q, num_kv_heads, dim_head});
+        kvcache::copy_to_buffer(num_kv_heads, len_q, len_buf, dim_head, placement, h_k, key_buf, stream);
+        kvcache::copy_to_buffer(num_kv_heads, len_q, len_buf, dim_head, placement, h_v, val_buf, stream);
 
-        // cudaStream_t stream = ctx.current_stream()->ptr;
+        // (batch, len_q, num_heads, dim_head) => (batch, num_heads, len_q, dim_head)
+        ctx.recordEvent("transposeQ", event_level);
+        h_q = bmengine::functions::transpose_2_1(ctx, h_q.view({batch, len_q, num_heads, dim_head}));
+        h_q = h_q.view({batch, num_kv_heads, num_head_groups * len_q, dim_head});
+
+        // Q * K
+        ctx.recordEvent("Q*K", event_level);
+        core::Tensor attn_score = gemm_transB.forward(
+            ctx,
+            h_q,    // ColMajor: (batch, num_kv_heads, dim_head, num_head_groups * len_q)
+            key_buf // ColMajor: (batch, num_kv_heads, len_buf, dim_head)T
+        );          // (batch, num_kv_heads, num_head_groups * len_q, len_buf)
+
+        // attn_softmax in-place update attn_score
+        ctx.recordEvent("attn_softmax", event_level);
+        const core::Tensor &pos_bias = pos_bias_type == "relative" ? position_bias : core::Tensor();
+        core::Tensor attn_score_q = attn_score.view({batch, num_heads, len_q, len_buf});
+        nn::attn_softmax(ctx, attn_scale, attn_score_q, mask, pos_bias);
     }
 
 }; // end of class Attention::impl::NormalImp
@@ -202,7 +225,6 @@ core::Tensor Attention::forward(const core::Context &ctx,
 
     core::Tensor *past_k = const_cast<core::Tensor *>(c_past_k);
     core::Tensor *past_v = const_cast<core::Tensor *>(c_past_v);
-    std::cout << "past_k info: " << past_k->info() << std::endl;
 
     impl::NormalImpl *p = dynamic_cast<impl::NormalImpl *>(pimpl.get());
     return p->forward(ctx, hidden_q, mask, position_bias, seqlens_q, seqlens_kv,

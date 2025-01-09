@@ -1,7 +1,79 @@
 #include "backend/transformer_buffer.h"
 #include "bmengine/functions/init.h"
+#include <assert.h>
 
 namespace kvcache {
+
+// gridDim (batch, len_kv, num_heads), blockDim (1024, 1, 1)
+template <typename T>
+static __global__ void BM_KERNEL(copy_to_buffer)(int len_buf, int num_heads, int dim_head,
+                                                 size_t src_stride, size_t dst_stride, int place_stride,
+                                                 const int32_t *__restrict__ placement, // (batch, len_kv)
+                                                 const T *__restrict__ src,             // (batch, len_kv, num_heads, dim_head)
+                                                 T *__restrict__ dst,                   // (batch, (num_heads, len_buf|len_buf, num_heads), dim_head)
+                                                 bool BSHD) {
+    int batch_id = blockIdx.x;
+    int pos_buf = (placement == nullptr) ? blockIdx.y : placement[batch_id * place_stride + blockIdx.y];
+    if (pos_buf < 0) return;
+
+    assert(pos_buf < len_buf);
+    size_t offset_src = batch_id * src_stride + (blockIdx.y * num_heads + blockIdx.z) * dim_head;
+    size_t offset_dst;
+    if (BSHD)
+        offset_dst = batch_id * dst_stride + (blockIdx.z + num_heads * pos_buf) * dim_head;
+    else
+        offset_dst = batch_id * dst_stride + (blockIdx.z * len_buf + pos_buf) * dim_head;
+
+    for (int i = threadIdx.x; i < dim_head; i += blockDim.x) {
+        dst[offset_dst + i] = src[offset_src + i];
+    }
+}
+
+void copy_to_buffer(int num_heads,
+                    int len_kv,
+                    int len_buf,
+                    int dim_head,
+                    const core::Tensor *placement, // (batch, len_q)
+                    const core::Tensor &src,       // (batch, len_q, num_heads, dim_head)
+                    const core::Tensor &dst,       // (batch, num_heads, len_buf, dim_head)
+                    cudaStream_t stream,
+                    bool BSHD) {
+    int batch = (src.ndim() == 3) ? 1 : src.size(0);
+    size_t src_stride = (src.ndim() == 3) ? 0 : src.stride(0);
+    size_t dst_stride = (dst.ndim() == 3) ? 0 : dst.stride(0);
+    int place_stride = (placement == nullptr || placement->ndim() == 1) ? 0 : placement->stride(0);
+    dim3 gridDim(batch, len_kv, num_heads);
+    dim3 blockDim(std::min(1024, round_up(dim_head, 32)), 1, 1);
+    auto dtype = src.dtype();
+
+    BM_ASSERT((src.ndim() == 3 && dst.ndim() == 3) || (src.ndim() == 4 && dst.ndim() == 4),
+              "src and dst must be 3/4-dimensional");
+    BM_ASSERT_EQ(dst.dtype(), dtype, "dst.dtype() != src.dtype()");
+    BM_ASSERT_EQ(src.size(-1), dim_head, "dim mismatch");
+    BM_ASSERT_EQ(src.size(-2), num_heads, "dim mismatch");
+    BM_ASSERT_EQ(src.size(-3), len_kv, "dim mismatch");
+    BM_ASSERT_EQ(dst.size(-1), dim_head, "dim mismatch");
+
+    if (BSHD) {
+        BM_ASSERT_EQ(dst.size(-2), num_heads, "dim mismatch");
+        if (batch > 1) {
+            BM_ASSERT_EQ(dst.size(-3), len_buf, "len_buf mismatch");
+        } else {
+            BM_ASSERT_LE(len_buf, dst.size(-3), "len_buf mismatch");
+        }
+    } else {
+        BM_ASSERT_EQ(dst.size(-3), num_heads, "dim mismatch");
+        BM_ASSERT_EQ(dst.size(-2), len_buf, "dim mismatch");
+    }
+
+    BM_DTYPE_DISPATCH(dtype, {
+        BM_KERNEL(copy_to_buffer)<<<gridDim, blockDim, 0, stream>>>(
+            len_buf, num_heads, dim_head, src_stride, dst_stride, place_stride,
+            (placement == nullptr ? nullptr : placement->data<int32_t>()),
+            src.data<scalar_t>(), dst.data<scalar_t>(), BSHD);
+    });
+    BM_CUDART_ASSERT(cudaGetLastError());
+}
 
 // gridDim (n / 1024, 1, 1),    blockDim (1024, 1, 1)
 template <typename T>
