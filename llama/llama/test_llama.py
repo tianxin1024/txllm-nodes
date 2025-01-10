@@ -13,7 +13,7 @@ def main(model_path="llama-13b-hf"):
     quant_config = QuantConfig(type=QuantType.AutoInt8)
     quant_config = None
     load_model_pt = True
-    origin_model_dir = f"/data/llm/{model_path}"
+    origin_model_dir = f"/home/tianxin/data/LLM/{model_path}"
 
     model_config_13b: LLaMAModelConfig = {
         "num_layers": 40,
@@ -40,5 +40,5 @@ def main(model_path="llama-13b-hf"):
     print("done!!!")
 
 if __name__ == "__main__":
-    main("tinyllama")
+    main("llama-13b-hf")
 

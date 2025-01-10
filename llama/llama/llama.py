@@ -1,16 +1,9 @@
 import os
+import json
 
-from typing import (
-    Any,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Union,
-    overload,
-    Callable,
-    NamedTuple,
-)
+from typing import (Any, Dict, List, Optional, Tuple, Union, overload,
+                    Callable, NamedTuple,)
+from transformers import AutoTokenizer
 from typing_extensions import TypedDict
 from config import DistConfig
 from quant import QuantConfig
@@ -110,4 +103,18 @@ class LLaMA:
         print(f"dist_config: parallel={dist_config.parallel}")
 
         self._init_tokenizer(vocab_path, tokenizer)
-        c_config = C.ModelConfig(self._config)
+        c_config = llm_nodes.ModelConfig(self._config)
+
+
+    def _init_tokenizer(self, vocab_path: str, tokenizer):
+        self.tokenizer_config = {}
+        if tokenizer is not None:
+            self._tokenizer = tokenizer
+            return
+
+        self._tokenizer = AutoTokenizer.from_pretrained(vocab_path)
+        self._tokenizer.bos_token_id = self._config.get("bos_token_id", None) or 1
+        self._tokenizer.eos_token_id = self._config.get("eos_token_id", None) or 2
+        tokenizer_config_path = f"{vocab_path}/tokenizer_config.json"
+        if os.path.exists(tokenizer_config_path):
+            self.tokenizer_config = json.load(open(tokenizer_config_path))
