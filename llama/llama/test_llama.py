@@ -4,8 +4,8 @@ import numpy as np
 
 from transformers import LlamaTokenizer, LlamaForCausalLM
 
-from .llama import LLaMAModelConfig, LLaMA
-from .quant import QuantConfig, QuantType
+from llama import LLaMAModelConfig, LLaMA
+from quant import QuantConfig, QuantType
 
 def main(model_path="llama-13b-hf"):
     assert LlamaTokenizer, "tinyllama tokenizer load failed, pip install transformer"

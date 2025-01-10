@@ -15,7 +15,11 @@ from typing_extensions import TypedDict
 from config import DistConfig
 from quant import QuantConfig
 from loader import LLaMALoader
-from . import llm_nodes
+from llm_nodes import ModelConfig
+import llm_nodes
+
+print(llm_nodes)
+print(dir(llm_nodes))
 
 
 class LLaMAModelConfig(TypedDict):
@@ -79,8 +83,8 @@ def _get_config(model_config) -> LLaMAModelConfig:
     if not os.environ.get("W4_A8_M_THRES"):
         os.environ["W4_A8_M_THRES"] = "1000"
     print(f"[DEV]Config: "
-          f"HIGH_PRECISION={os.environ.get("HIGH_PRECISION")}"
-          f",; DUAL_STREAM={os.environ.get("DUAL_STREAM")}"
+          f'HIGH_PRECISION={os.environ.get("HIGH_PRECISION")}'
+          f'; DUAL_STREAM={os.environ.get("DUAL_STREAM")}'
           f'; CPM_FUSE_QKV={os.environ.get("CPM_FUSE_QKV")}'
           f'; CPM_FUSE_FF_IN={os.environ.get("CPM_FUSE_FF_IN")}'
           f'; REDUCE_TP_INT8_THRES={os.environ.get("REDUCE_TP_INT8_THRES")}'

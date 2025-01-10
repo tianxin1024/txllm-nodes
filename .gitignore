@@ -42,3 +42,4 @@ attention/.cache/clangd/index
 attention/build
 llama/.cache/clangd/index
 llama/build
+llama/llama/__pycache__
