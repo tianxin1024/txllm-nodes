@@ -15,6 +15,7 @@ from typing_extensions import TypedDict
 from config import DistConfig
 from quant import QuantConfig
 from loader import LLaMALoader
+from . import llm_nodes
 
 
 class LLaMAModelConfig(TypedDict):
@@ -105,3 +106,4 @@ class LLaMA:
         print(f"dist_config: parallel={dist_config.parallel}")
 
         self._init_tokenizer(vocab_path, tokenizer)
+        c_config = C.ModelConfig(self._config)

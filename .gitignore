@@ -40,3 +40,5 @@ feedforward/.cache/clangd/index
 feedforward/build
 attention/.cache/clangd/index
 attention/build
+llama/.cache/clangd/index
+llama/build
