@@ -6,4 +6,5 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(llm_nodes, handle) {
     bind::define_model_config(handle);
+    bind::define_quant_config(handle);
 }

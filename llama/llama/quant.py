@@ -1,6 +1,7 @@
 import enum
 import os
 from typing_extensions import TypedDict
+import llm_nodes
 
 
 @enum.unique
@@ -70,5 +71,14 @@ class QuantConfig(TypedDict, total=False):
             cfg["group_size"] = hf_config["group_size"]
         return cfg
 
+def quant_config_to_c(config):
+    cfg = config or QuantConfig()
+    return llm_nodes.QuantConfig(
+        cfg.get("type", QuantType.NoQuant).value,
+        cfg.get("quant_weight_kv", 1),
+        cfg.get("act_order", False),
+        cfg.get("group_size", 128),
+        cfg.get("sym", False),
+    )
 
 

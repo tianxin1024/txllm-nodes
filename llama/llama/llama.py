@@ -6,7 +6,7 @@ from typing import (Any, Dict, List, Optional, Tuple, Union, overload,
 from transformers import AutoTokenizer
 from typing_extensions import TypedDict
 from config import DistConfig
-from quant import QuantConfig
+from quant import QuantConfig, quant_config_to_c
 from loader import LLaMALoader
 from llm_nodes import ModelConfig
 import llm_nodes
@@ -104,6 +104,7 @@ class LLaMA:
 
         self._init_tokenizer(vocab_path, tokenizer)
         c_config = llm_nodes.ModelConfig(self._config)
+        c_quant_config = quant_config_to_c(self._quant_config)
 
 
     def _init_tokenizer(self, vocab_path: str, tokenizer):

@@ -7,6 +7,7 @@
 
 namespace py = pybind11;
 using model::ModelConfig;
+using model::QuantConfig;
 
 namespace bind {
 
@@ -32,10 +33,25 @@ model::ModelConfig create_config_from_dict(py::dict &cfg) {
     return bind::pydict_to_model_config(cfg);
 }
 
+QuantConfig create_quant_config(int i_quant_type, bool quant_weight_kv, bool act_order, int group_size, bool sym) {
+    QuantConfig config{};
+    config.quant_type = static_cast<model::QuantType>(i_quant_type);
+    config.quant_weight_kv = quant_weight_kv;
+    config.act_order = act_order;
+    config.group_size = group_size;
+    config.sym = sym;
+    return config;
+}
+
 void define_model_config(py::module_ &handle) {
     py::class_<model::ModelConfig>(handle, "ModelConfig")
         .def(py::init(&create_config))
         .def(py::init(&create_config_from_dict));
+}
+
+void define_quant_config(py::module_ &handle) {
+    py::class_<QuantConfig>(handle, "QuantConfig")
+        .def(py::init(&create_quant_config));
 }
 
 } // namespace bind
