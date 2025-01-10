@@ -11,4 +11,9 @@ namespace py = pybind11;
 void define_model_config(py::module_ &handle);
 void define_quant_config(py::module_ &handle);
 
+void define_engine(py::module_ &handle);
+
+// model
+void define_cpm_base(py::module_ &handle);
+
 } // namespace bind

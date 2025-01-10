@@ -29,7 +29,7 @@ def main(model_path="llama-13b-hf"):
             f"{origin_model_dir}.ckpt",
             origin_model_dir,
             -1,
-            memory_limit=30 << 30,
+            memory_limit=2 << 20,
             model_config = model_config_13b,
             quant_config = quant_config,
             load_model = not load_model_pt,

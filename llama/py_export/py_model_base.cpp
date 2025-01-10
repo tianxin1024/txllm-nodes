@@ -4,10 +4,14 @@
 #include <bmengine/core/core.h>
 #include "backend/model_config.h"
 #include "py_export/py_utils.h"
+#include "py_export/py_model_base.h"
+#include "backend/utils.h"
 
 namespace py = pybind11;
 using model::ModelConfig;
 using model::QuantConfig;
+using bmengine::core::Engine;
+using bmengine::core::DeviceConfiguration;
 
 namespace bind {
 
@@ -43,6 +47,39 @@ QuantConfig create_quant_config(int i_quant_type, bool quant_weight_kv, bool act
     return config;
 }
 
+void initialize_gemm(ModelConfig model_config, QuantConfig quant_config, int tp, int max_lenght) {
+}
+
+static std::vector<DeviceConfiguration> get_all_dev_config(size_t memory_limit) {
+    std::vector<DeviceConfiguration> devices;
+    int gpu_num;
+    BM_CUDART_ASSERT(cudaGetDeviceCount(&gpu_num));
+    for (int i = 0; i < gpu_num; ++i) {
+        devices.emplace_back(i, memory_limit);
+    }
+    return devices;
+}
+
+std::shared_ptr<Engine> create_engine(int device_id, size_t memory_limit, int tp) {
+    if (memory_limit == 0) {
+        size_t free, total;
+        BM_CUDART_ASSERT(cudaSetDevice(device_id < 0 ? 0 : device_id));
+        BM_CUDART_ASSERT(cudaMemGetInfo(&free, &total));
+        size_t def_reserve_mem = free > (36UL << 30UL) ? 1700 : 1024;
+        size_t reserve_mem = utils::get_int_env("CPM_RESERVE_MEM_MB", def_reserve_mem);
+        memory_limit = free - (reserve_mem << 20UL);
+    }
+
+    std::vector<DeviceConfiguration> devices;
+    if (device_id == -1) {
+        // use all available devices
+        devices = get_all_dev_config(memory_limit);
+    } else {
+        devices.emplace_back(device_id, size_t(memory_limit));
+    }
+    return std::make_shared<Engine>(devices, tp);
+}
+
 void define_model_config(py::module_ &handle) {
     py::class_<model::ModelConfig>(handle, "ModelConfig")
         .def(py::init(&create_config))
@@ -52,6 +89,16 @@ void define_model_config(py::module_ &handle) {
 void define_quant_config(py::module_ &handle) {
     py::class_<QuantConfig>(handle, "QuantConfig")
         .def(py::init(&create_quant_config));
+}
+
+void define_cpm_base(py::module_ &handle) {
+    py::class_<PyModelBase>(handle, "CPMBase")
+        .def("initialize_gemm", &initialize_gemm);
+}
+
+void define_engine(py::module_ &handle) {
+    py::class_<Engine, std::shared_ptr<Engine>>(handle, "Engine")
+        .def(py::init(&create_engine));
 }
 
 } // namespace bind

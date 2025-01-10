@@ -105,6 +105,11 @@ class LLaMA:
         self._init_tokenizer(vocab_path, tokenizer)
         c_config = llm_nodes.ModelConfig(self._config)
         c_quant_config = quant_config_to_c(self._quant_config)
+        llm_nodes.CPMBase.initialize_gemm(c_config, c_quant_config, dist_config.tp, self._config["max_token"])
+
+        self._context = None  # Reserve for future usage
+
+        c_engine = llm_nodes.Engine(device_id, memory_limit, dist_config.tp)
 
 
     def _init_tokenizer(self, vocab_path: str, tokenizer):
