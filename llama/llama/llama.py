@@ -111,6 +111,11 @@ class LLaMA:
 
         c_engine = llm_nodes.Engine(device_id, memory_limit, dist_config.tp)
 
+        self._model = llm_nodes.LLaMA(c_engine,
+                                      c_config,
+                                      c_quant_config,
+                                      dist_config.parallel,)
+
 
     def _init_tokenizer(self, vocab_path: str, tokenizer):
         self.tokenizer_config = {}

@@ -1,0 +1,43 @@
+#include "py_export/bind.h"
+#include "py_export/py_model_base.h"
+#include <bmengine/core/core.h>
+#include "backend/model.h"
+
+namespace py = pybind11;
+
+using bmengine::core::Tensor;
+using bmengine::core::DataType;
+typedef std::shared_ptr<bmengine::core::Engine> EnginePtr;
+
+class PyLLaMA : public PyModelBase {
+private:
+    EnginePtr engine_;
+    model::ModelConfig model_config_;
+    std::vector<model::ModelBase *> models_;
+
+public:
+    PyLLaMA(EnginePtr engine,
+            model::ModelConfig model_config,
+            model::QuantConfig quant_config,
+            bool parallel) :
+        PyModelBase("llama", parallel),
+        engine_(engine), model_config_(model_config) {
+        std::cout << model_config.to_string() << std::endl;
+    }
+
+    static PyLLaMA create(EnginePtr engine,
+                          model::ModelConfig &model_config,
+                          model::QuantConfig quant_config,
+                          bool parallel = false) {
+        return PyLLaMA(engine, model_config, quant_config, parallel);
+    }
+
+}; // end of class PyLLaMA
+
+namespace bind {
+void define_llama(py::module_ &handle) {
+    py::class_<PyLLaMA, PyModelBase>(handle, "LLaMA")
+        .def(py::init(&PyLLaMA::create));
+}
+
+} // namespace bind

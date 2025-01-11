@@ -15,5 +15,6 @@ void define_engine(py::module_ &handle);
 
 // model
 void define_cpm_base(py::module_ &handle);
+void define_llama(py::module_ &handle);
 
 } // namespace bind

@@ -15,4 +15,8 @@ public:
     }
 
     virtual ~PyModelBase() = default;
+
+    bool is_parallel() const {
+        return parallel_;
+    }
 };
