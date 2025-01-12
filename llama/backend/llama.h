@@ -3,6 +3,9 @@
 #include "backend/model_context.h"
 #include <bmengine/core/core.h>
 #include <bmengine/functions/all.h>
+#include "backend/layernorm.h"
+#include "backend/embedding.h"
+#include "backend/block.h"
 
 namespace model {
 
@@ -55,10 +58,10 @@ private:
     bool parallel;
     bool tie_lm_head;
 
-    // functions::ModuleList<nn::EncoderLayer> encoder;
-    // nn::LayerNorm lm_after_enc;
-    // nn::RawEmbedding lm_head;
-    // nn::RawEmbedding token_embedding;
+    functions::ModuleList<nn::EncoderLayer> encoder;
+    nn::LayerNorm ln_after_enc;
+    nn::RawEmbedding lm_head;
+    nn::RawEmbedding token_embedding;
 
     BM_LAYER_DEF_PUBLIC(LLaMA);
 
