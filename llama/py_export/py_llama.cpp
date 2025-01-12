@@ -2,6 +2,7 @@
 #include "py_export/py_model_base.h"
 #include <bmengine/core/core.h>
 #include "backend/model.h"
+#include "backend/llama.h"
 
 namespace py = pybind11;
 
@@ -23,6 +24,24 @@ public:
         PyModelBase("llama", parallel),
         engine_(engine), model_config_(model_config) {
         std::cout << model_config.to_string() << std::endl;
+        if (!parallel && engine->num_gpus() > 1) {
+            throw std::runtime_error("WARNING: Use parallel=false with multiple GPU !!!");
+        }
+        models_.resize(engine->world_size());
+        engine->device_foreach([this, &model_config, quant_config, parallel](int i) {
+            auto ctx = engine_->create_context_rank(i);
+            auto with_device = ctx.with_device(0);
+            models_[i] = new model::LLaMA(ctx, model_config, quant_config, parallel);
+        });
+    }
+
+    ~PyLLaMA() {
+        if (engine_ && !models_.empty()) {
+            engine_->device_foreach([this](int i) {
+                delete models_[i];
+            });
+            models_.clear();
+        }
     }
 
     static PyLLaMA create(EnginePtr engine,
