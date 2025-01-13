@@ -33,13 +33,13 @@ def load_model(ver="1b", load_model_pt=False):
         raise ValueError(f"Unknown version {ver}")
 
     if load_model_pt:
-        model.load_model_pt(f"{model_dir}")
+        model.load_model_safetensors(f"{model_dir}")
 
     print(f"model load finished in {time.time() - t0} seconds")
     return model
 
 def main(ver="1b"):
-    model = load_model(ver, False)
+    model = load_model(ver, True)
 
 
     print("done!!!")

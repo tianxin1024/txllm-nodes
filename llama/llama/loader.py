@@ -1,5 +1,10 @@
+import concurrent.futures
 import os
+import re
+import time
 import json
+import glob
+import torch
 from abc import ABC, abstractmethod
 
 class ModelLoader(ABC):
@@ -7,6 +12,74 @@ class ModelLoader(ABC):
     def fetch_parameter(self, name):
         ...
 
+    @staticmethod
+    def convert_quant_dict(state_dict):
+        if 'quant_state' not in state_dict:
+            return state_dict
+        state = state_dict['state']
+        quant_state = state_dict['quant_state']
+        state_dict = {}
+        for name, param in state.items():
+            if name in quant_state:
+                prefix = name.rsplit('.', 1)[0]
+                state_dict[prefix + ".qunat_weight"] = param
+                state_dict[prefix + ".scale_weight"] = quant_state[name]['scales']
+                state_dict[prefix + ".zero_weight"] = quant_state[name]['qzeros']
+            elif isinstance(param, torch.Tensor):
+                state_dict[name] = param
+        return state_dict
+
+    @staticmethod
+    def load_safetensors(model_dir, pattern="*.safetensors", parallel=None):
+        if not hasattr(torch, "float8_e4m3fn"):
+            torch.float8_e4m3fn = torch.int8
+        from safetensors.torch import load_file
+        files = sorted(glob.glob(f"{model_dir}/{pattern}"))
+        if not files:
+            raise ValueError(f"No safetensors files found in: {model_dir}")
+        state_dict = {}
+        if parallel is None:
+            parallel = model_dir.startswith("/tmp") and os.environ.get("DISABLE_PARALLEL_LOAD", "0") != "1"
+        if parallel:
+            print(f"########## parallel load_clone {len(files)} files ##########")
+            t0 = time.time()
+            def load_clone(f):
+                d1 = load_file(f)
+                return {k : torch.clone(v) for k, v in d1.items()}
+            with concurrent.futures.ThreadPoolExecutor(max_workers=100) as executor:
+                futures = [executor.submit(load_clone, f) for f in files]
+                for f in futures:
+                    state_dict.update(f.result())
+            print(f"########## Done load_clone {len(files)} files in {time.time() - t0:.1f} seconds ##########")
+            return state_dict
+
+        for f in files:
+            state_dict.update(load_file(f))
+        return state_dict
+
+    @staticmethod
+    def load_pt(model_dir):
+        state_dict = {}
+        if os.path.isfile(f"{model_dir}"):
+            state_dict = torch.load(f"{model_dir}", map_location="cpu")
+        elif os.path.isfile(f"{model_dir}/pytorch_model.pt"):
+            state_dict = torch.load(f"{model_dir}/pytorch_model.pt", map_location="cpu")
+        else:
+            pt_files = sorted(glob.glob(f"{model_dir}/pytorch_model*.bin"))
+            if not pt_files:
+                pt_files = sorted(glob.glob(f"{model_dir}/caterpillar_*.pt"))
+            if not pt_files:
+                pt_files = sorted(glob.glob(f"{model_dir}/cpm_*pt"))
+            if not pt_files and glob.glob(f"{model_dir}/*.safetensors"):
+                return ModelLoader.load_safetensors(model_dir)
+            if not pt_files:
+                raise ValueError(f"No checkpoint found in: {model_dir}")
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [executor.submit(torch.load, f, "cpu") for f in pt_files]
+                for f in futures:
+                    state_dict.update(f.result())
+        return state_dict
 
 def _set_env(name, value, tip=''):
     if name not in os.envion:
@@ -122,4 +195,25 @@ class LLaMALoader(ModelLoader):
             model_config["force_half"] = True
         return model_config
 
+    @staticmethod
+    def load_safetensors(model_dir, pattern="*.safetensors"):
+        state_dict = ModelLoader.load_safetensors(model_dir, pattern)
+        return LLaMALoader.convert_quant_dict(state_dict)
+
+    @staticmethod
+    def load_pt(model_dir):
+        state_dict = ModelLoader.load_pt(model_dir)
+        return LLaMALoader.convert_quant_dict(state_dict)
+
+    @staticmethod
+    def _replace_name(s):
+        s = re.sub("model.embed_tokens.weight", "token_embedding.weight", s)
+        s = re.sub("model.nor.weight", "output_layernorm.weight", s)
+        s = re.sub(
+            "model.layers.([0-9]+).input_layernorm.(weight|scales|qweight|qzeros)",
+            "layers.\\1.ln_attn.\\2",
+            s,
+        )
+
+        return "llama." + s
 

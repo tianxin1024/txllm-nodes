@@ -1,5 +1,6 @@
 import os
 import json
+import numpy as np
 
 from typing import (Any, Dict, List, Optional, Tuple, Union, overload,
                     Callable, NamedTuple,)
@@ -86,6 +87,7 @@ def _get_config(model_config) -> LLaMAModelConfig:
           )
     return cfg
 
+
 class LLaMA:
     def __init__(self, 
                  model_path: str,
@@ -129,3 +131,33 @@ class LLaMA:
         tokenizer_config_path = f"{vocab_path}/tokenizer_config.json"
         if os.path.exists(tokenizer_config_path):
             self.tokenizer_config = json.load(open(tokenizer_config_path))
+
+    def load_state_dict_pt(self, state_dict):
+        import torch
+        def trans_type(dtype, p):
+            if dtype == torch.bfloat16:
+                return p.view(torch.int16)
+            if dtype == torch.float8_e4m3fn:
+                return p.view(torch.int8)
+            if dtype == torch.float32 and p.ndim > 0:
+                return p.half()
+            return p
+
+        if self._config.get("force_half", False):
+            for name, param in list(state_dict.items()):
+                if param.dtype == torch.bfloat16:
+                    state_dict[name] = param.half()
+
+        new_state_dict = {
+            LLaMALoader._replace_name(name) : np.atleast_1d(trans_type(param.dtype, param).cpu().numpy())
+            for name, param in state_dict.items()
+        }
+        self._model.load_state_dict(new_state_dict)
+
+    def load_model_pt(self, model_dir):
+        state_dict = LLaMALoader.load_pt(model_dir)
+        self.load_state_dict_pt(state_dict)
+
+    def load_model_safetensors(self, model_dir, pattern="*.safetensors"):
+        self.load_state_dict_pt(LLaMALoader.load_safetensors(model_dir, pattern))
+
