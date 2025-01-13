@@ -19,6 +19,10 @@ public:
     impl(const impl &) = default;
     impl(impl &&) = default;
 
+    void set_rms(bool b) {
+        rms = b;
+    }
+
 }; // end of class LayerNorm::impl
 
 class LayerNorm::impl::MultiHeadImpl : public LayerNorm::impl {
@@ -56,5 +60,9 @@ LayerNorm::LayerNorm(const core::Context &ctx,
 }
 
 LayerNorm::~LayerNorm() = default;
+
+void LayerNorm::set_rms(bool b) {
+    pimpl->set_rms(b);
+}
 
 } // namespace nn

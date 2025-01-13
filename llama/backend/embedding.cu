@@ -13,6 +13,12 @@ public:
 
     virtual core::Tensor &get_weight() = 0;
 
+    virtual void set_scale_weights(bool b) = 0;
+    virtual void set_scale_factor(float b) = 0;
+    virtual void set_logit_scale(float s) {
+        logit_scale = s;
+    }
+
 }; // end of class RawEmbedding
 
 class RawEmbedding::impl::NormalImpl : public RawEmbedding::impl {
@@ -39,6 +45,12 @@ public:
     core::Tensor &get_weight() {
         return weight;
     }
+    void set_scale_weights(bool b) {
+        scale_factor = (b ? 1.0 / sqrtf(dim_model) : 1.0);
+    }
+    void set_scale_factor(float b) {
+        scale_factor = b;
+    }
 
 }; // end of class RawEmbedding::impl::NormalImpl
 
@@ -62,5 +74,16 @@ RawEmbedding::RawEmbedding(const core::Context &ctx,
 }
 
 RawEmbedding::~RawEmbedding() = default;
+
+void RawEmbedding::set_scale_weights(bool b) {
+    pimpl->set_scale_factor(b);
+}
+void RawEmbedding::set_scale_factor(float b) {
+    pimpl->set_scale_factor(b);
+}
+
+void RawEmbedding::set_logit_scale(float b) {
+    pimpl->set_logit_scale(b);
+}
 
 } // namespace nn
