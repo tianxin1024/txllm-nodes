@@ -1,5 +1,6 @@
 #include "backend/block.h"
 #include "backend/layernorm.h"
+#include "backend/attention.h"
 
 namespace nn {
 
@@ -7,7 +8,7 @@ class EncoderLayer::impl {
 public:
     class CohereImpl;
     LayerNorm ln_attn, ln_ff;
-    // Attention attn;
+    Attention attn;
     // FeedForward ff;
     float scale;
     bool scale_residual;
@@ -23,7 +24,7 @@ public:
          bool parallel) :
         ln_attn(ctx, cfg.dim_model, quant_config.fuse_ln_attn(), cfg.eps, 1.0, cfg.dtype),
         ln_ff(ctx, cfg.dim_model, quant_config.fuse_ln_ff(), cfg.eps, 1.0, cfg.dtype),
-        // attn(ctx, cfg, quant_config, parallel),
+        attn(ctx, cfg, quant_config, parallel),
         // ff(ctx, cfg, quant_config, parallel),
         scale(cfg.model_type == "cpm_dragonfly" ? sqrtf(float(cfg.num_layers)) / cfg.scale_depth : 1.0),
         scale_residual(cfg.model_type == "cpm_dragonfly" ? false : true),
@@ -68,7 +69,7 @@ EncoderLayer::EncoderLayer(const core::Context &ctx,
     auto mask_modules = config.mask_modules[this->layer_id];
     if (!mask_modules[0]) {
         add_submodule("ln_attn", pimpl->ln_attn);
-        // add_submodule("attn", pimpl->attn);
+        add_submodule("attn", pimpl->attn);
     }
     if (!mask_modules[1]) {
         if (!is_cohere) {
