@@ -1,6 +1,7 @@
 #include "backend/block.h"
 #include "backend/layernorm.h"
 #include "backend/attention.h"
+#include "backend/feedforward.h"
 
 namespace nn {
 
@@ -9,7 +10,7 @@ public:
     class CohereImpl;
     LayerNorm ln_attn, ln_ff;
     Attention attn;
-    // FeedForward ff;
+    FeedForward ff;
     float scale;
     bool scale_residual;
     std::vector<bool> mask_modules;
@@ -25,7 +26,7 @@ public:
         ln_attn(ctx, cfg.dim_model, quant_config.fuse_ln_attn(), cfg.eps, 1.0, cfg.dtype),
         ln_ff(ctx, cfg.dim_model, quant_config.fuse_ln_ff(), cfg.eps, 1.0, cfg.dtype),
         attn(ctx, cfg, quant_config, parallel),
-        // ff(ctx, cfg, quant_config, parallel),
+        ff(ctx, cfg, quant_config, parallel),
         scale(cfg.model_type == "cpm_dragonfly" ? sqrtf(float(cfg.num_layers)) / cfg.scale_depth : 1.0),
         scale_residual(cfg.model_type == "cpm_dragonfly" ? false : true),
         mask_modules(cfg.mask_modules[ctx.current_layer()]),
@@ -75,7 +76,7 @@ EncoderLayer::EncoderLayer(const core::Context &ctx,
         if (!is_cohere) {
             add_submodule("ln_ff", pimpl->ln_ff);
         }
-        // add_submodule("ff", pimpl->ff);
+        add_submodule("ff", pimpl->ff);
     }
 }
 
