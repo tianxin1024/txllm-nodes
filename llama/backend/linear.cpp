@@ -87,4 +87,26 @@ Linear::Linear(const core::Context &ctx,
     pimpl->dist_layout = dist_layout;
 }
 
+Linear::Linear(const core::Context &ctx,
+               int dim_in,
+               int dim_out,
+               model::QuantConfig quant_config,
+               core::DistLayout dist_layout,
+               core::DataType dtype) :
+    Linear(ctx, dim_in, dim_out, "", quant_config, false, false, ctx.world_size() > 1, dist_layout, dtype) {
+}
+
+Linear::Linear(const core::Context &ctx,
+               const std::string &name,
+               const core::Tensor &w) :
+    Linear(ctx, w.size(1), w.size(0), "", 0, false, false, false, core::DistLayout::REPLICATED, w.dtype()) {
+    BM_ASSERT_EQ(w.ndim(), 2, "");
+    this->name = name;
+    auto ptr = dynamic_cast<impl::NormalLinear *>(pimpl.get());
+    BM_ASSERT(ptr, "Not NormalLinear");
+    *ptr->weight = w;
+}
+
+Linear::~Linear() = default;
+
 } // namespace nn
