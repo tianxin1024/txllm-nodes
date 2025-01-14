@@ -24,4 +24,11 @@ Attention::Attention(const core::Context &ctx,
 
 Attention::~Attention() = default;
 
+void Attention::load_state_dict(const core::Context &ctx,
+                                const std::map<std::string, const core::Tensor> &state_dict,
+                                const std::string &prefix,
+                                bool allow_missing) {
+    std::cout << "Attention::load_state_dict" << std::endl;
+}
+
 } // namespace nn

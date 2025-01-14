@@ -86,4 +86,11 @@ void RawEmbedding::set_logit_scale(float b) {
     pimpl->set_logit_scale(b);
 }
 
+void RawEmbedding::load_state_dict(const core::Context &ctx,
+                                   const std::map<std::string, const core::Tensor> &state_dict,
+                                   const std::string &prefix,
+                                   bool allow_missing) {
+    std::cout << "RawEmbedding::load_state_dict" << std::endl;
+}
+
 } // namespace nn

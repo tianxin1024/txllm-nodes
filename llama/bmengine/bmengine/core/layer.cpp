@@ -86,9 +86,11 @@ void Layer::load_state_dict(
     const std::map<std::string, const Tensor> &state_dict,
     const std::string &prefix,
     bool allow_missing) {
+    std::cout << ">>>> Layer::load_state_dict" << std::endl;
     this->prefix = prefix;
     for (auto &p_name : param_names) {
         std::string name = prefix + "." + p_name; // full name
+        std::cout << ">>>> Load param: " << name << std::endl;
         if (ctx.debug() >= 2) {
             std::cout << "Load param: " << name << std::endl;
         }
@@ -96,6 +98,8 @@ void Layer::load_state_dict(
     }
     // load recursively
     for (auto &m_name : module_names) {
+        std::cout << "Load module: " << m_name << std::endl;
+        std::cout << modules[m_name] << std::endl;
         modules[m_name]->load_state_dict(ctx, state_dict, prefix + "." + m_name, allow_missing);
     }
 }

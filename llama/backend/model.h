@@ -1,9 +1,8 @@
 #pragma once
-
+#include <bmengine/core/core.h>
 #include "backend/model_config.h"
 
 namespace model {
-
 using namespace bmengine;
 
 class ModelBase : public core::Layer {
@@ -36,6 +35,15 @@ public:
 
     ModelBase(const ModelBase &) = delete;
     ModelBase(ModelBase &&) = delete;
+
+    void load_model_state_dict(
+        const core::Context &ctx,
+        const std::map<std::string, const core::Tensor> &state_dict,
+        const std::string &prefix,
+        bool allow_missing = false) {
+        // 显式调用基类
+        core::Layer::load_state_dict(ctx, state_dict, prefix);
+    }
 
 }; // end of class ModelBase
 

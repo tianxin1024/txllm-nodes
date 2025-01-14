@@ -65,4 +65,11 @@ void LayerNorm::set_rms(bool b) {
     pimpl->set_rms(b);
 }
 
+void LayerNorm::load_state_dict(const core::Context &ctx,
+                                const std::map<std::string, const core::Tensor> &state_dict,
+                                const std::string &prefix,
+                                bool allow_missing) {
+    std::cout << "LayerNorm::load_state_dict" << std::endl;
+}
+
 } // namespace nn

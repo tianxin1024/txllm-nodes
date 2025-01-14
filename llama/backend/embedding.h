@@ -19,6 +19,11 @@ class RawEmbedding : public core::Layer {
     void set_scale_factor(float b);
     void set_logit_scale(float b);
 
+    void load_state_dict(const core::Context &ctx,
+                         const std::map<std::string, const core::Tensor> &state_dict,
+                         const std::string &prefix,
+                         bool allow_missing) override;
+
 }; // end of class RawEmbedding
 
 } // namespace nn

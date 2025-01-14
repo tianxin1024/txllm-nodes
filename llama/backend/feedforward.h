@@ -14,6 +14,11 @@ class FeedForward : public core::Layer {
                 model::QuantConfig quant_config,
                 bool parallel);
 
+    void load_state_dict(const core::Context &ctx,
+                         const std::map<std::string, const core::Tensor> &state_dict,
+                         const std::string &prefix,
+                         bool allow_missing) override;
+
 }; // end of class FeedForward
 
 } // namespace nn

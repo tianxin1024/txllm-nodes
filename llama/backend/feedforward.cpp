@@ -64,4 +64,11 @@ FeedForward::FeedForward(const core::Context &ctx,
 
 FeedForward::~FeedForward() = default;
 
+void FeedForward::load_state_dict(const core::Context &ctx,
+                                  const std::map<std::string, const core::Tensor> &state_dict,
+                                  const std::string &prefix,
+                                  bool allow_missing) {
+    std::cout << "FeedForward::load_state_dict" << std::endl;
+}
+
 } // namespace nn

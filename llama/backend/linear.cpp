@@ -109,4 +109,11 @@ Linear::Linear(const core::Context &ctx,
 
 Linear::~Linear() = default;
 
+void Linear::load_state_dict(const core::Context &ctx,
+                             const std::map<std::string, const core::Tensor> &state_dict,
+                             const std::string &prefix,
+                             bool allow_missing) {
+    std::cout << "Linear::load_state_dict" << std::endl;
+}
+
 } // namespace nn

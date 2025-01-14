@@ -2,6 +2,53 @@
 
 namespace bind {
 
+using bmengine::core::Context;
+using bmengine::core::DataType;
+using bmengine::core::Tensor;
+
+// Create a tensor reference to numpy array's underlying data.
+// No data coping happens
+const Tensor numpy_to_tensor(const std::string &name, const py::array &arr) {
+    py::format_descriptor<float>::format();
+    py::buffer_info buf = arr.request();
+    auto dtype = numpy_dtype_to_bmengine(arr.dtype());
+    const auto tensor = Tensor::from_external(
+        *reinterpret_cast<std::vector<size_t> *>(&buf.shape), dtype, buf.ptr, arr.nbytes());
+    tensor.set_name(name);
+    return std::move(tensor);
+}
+
+std::map<std::string, const Tensor> numpy_to_tensor(
+    const std::map<std::string, py::array> &state_dict) {
+    std::map<std::string, const Tensor> tensor_dict;
+    for (auto &it : state_dict) {
+        tensor_dict.emplace(it.first, std::move(bind::numpy_to_tensor(it.first, it.second)));
+    }
+    return tensor_dict;
+}
+
+bmengine::core::DataType numpy_dtype_to_bmengine(py::dtype dtype) {
+    switch (dtype.char_()) {
+    case 'd':
+        return bmengine::core::DataType::kDouble;
+    case 'f':
+        return bmengine::core::DataType::kFloat;
+    case 'e':
+        return bmengine::core::DataType::kHalf;
+    case 'b':
+        return bmengine::core::DataType::kInt8;
+    case 'h':
+        return bmengine::core::DataType::kInt16;
+    case 'i':
+        return bmengine::core::DataType::kInt32;
+    default:
+        break;
+    }
+    throw std::runtime_error(
+        std::string("can't convert np.ndarray of type ") + dtype.char_() + "The only supported types are: "
+                                                                           "float63, float32, float16, int32, int16, half and int8.");
+}
+
 template <typename T>
 std::vector<std::vector<T>> to_2d_vector(const py::list &data_list) {
     std::vector<std::vector<T>> c_data_list;

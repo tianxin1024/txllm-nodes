@@ -11,6 +11,7 @@ LLaMA::LLaMA(core::Context &ctx, ModelConfig model_config, QuantConfig quant_con
     lm_head(ctx, dim_model, vocab_size, false, dtype, parallel),
     parallel(parallel),
     tie_lm_head(model_config.tie_lm_head) {
+    std::cout << "LLaMA::LLaMA" << std::endl;
     std::vector<int> devices = partition_layer_devices(ctx, num_layers);
 
     for (int i = 0; i < num_layers; i++) {

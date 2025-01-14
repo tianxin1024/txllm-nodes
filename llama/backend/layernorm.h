@@ -15,6 +15,11 @@ class LayerNorm : public core::Layer {
               int num_head = 1);
 
     void set_rms(bool b); // If false, use standard LayerNorm
+
+    void load_state_dict(const core::Context &ctx,
+                         const std::map<std::string, const core::Tensor> &state_dict,
+                         const std::string &prefix,
+                         bool allow_missing) override;
 };
 
 } // namespace nn
