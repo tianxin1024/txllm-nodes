@@ -103,7 +103,7 @@ void Layer::load_state_dict(
     }
     // load recursively
     for (auto &m_name : module_names) {
-        std::cout << "}}}}}}}}}}}}}} Load module: " << m_name << std::endl;
+        std::cout << "[Layer] Load module: " << m_name << std::endl;
         std::cout << modules[m_name] << std::endl;
         modules[m_name]->load_state_dict(ctx, state_dict, prefix + "." + m_name, allow_missing);
     }

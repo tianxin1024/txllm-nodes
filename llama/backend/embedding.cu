@@ -1,5 +1,6 @@
 #include "backend/embedding.h"
 #include "backend/utils.h"
+#include <bmengine/functions/init.h>
 
 namespace nn {
 
@@ -7,7 +8,7 @@ class RawEmbedding::impl {
 public:
     class NormalImpl;
     class ParallelImpl;
-    // class RowParallelImpl;
+    class RowParallelImpl;
     float logit_scale{1.}; // For Cohere model
     virtual ~impl() = default;
 
@@ -54,6 +55,36 @@ public:
 
 }; // end of class RawEmbedding::impl::NormalImpl
 
+class RawEmbedding::impl::RowParallelImpl : public RawEmbedding::impl::NormalImpl {
+public:
+    unsigned int vocab_size;
+    RowParallelImpl(const core::Context &ctx,
+                    unsigned int vocab_size,
+                    unsigned int dim_model,
+                    bool scale_weights,
+                    core::DataType dtype) :
+        NormalImpl(ctx, vocab_size, dim_model, scale_weights, dtype), vocab_size(vocab_size) {
+    }
+
+    void load_state_dict(const core::Context &ctx,
+                         const std::map<std::string, const core::Tensor> &state_dict,
+                         const std::string &prefix,
+                         bool allow_missing) {
+        unsigned int round_size = round_up(vocab_size, 128);
+        unsigned int part_size = round_size / ctx.world_size();
+        begin = ctx.rank() * part_size;
+        end = begin + part_size;
+
+        auto it = state_dict.find(prefix + ".weight");
+        BM_ASSERT(it != state_dict.end(), "Weight not found: " + prefix + ".weight");
+        auto part_src = it->second.slice_dim0(begin, std::min(end, vocab_size));
+        weight = ctx.tensor({part_size, dim_model}, dtype);
+        functions::zeros_(ctx, weight);
+        auto weight_t = weight.slice_dim0(0, part_src.size(0));
+        ctx.assign_or_copy(&weight_t, &part_src);
+    }
+};
+
 RawEmbedding::RawEmbedding(const core::Context &ctx,
                            int dim_model,
                            int vocab_size,
@@ -63,12 +94,12 @@ RawEmbedding::RawEmbedding(const core::Context &ctx,
     core::Layer() {
     int row_parallel = utils::get_int_env("CPM_EMB_ROW_PAR", 1);
     if (parallel) {
-        // pimpl.reset(new impl::RowParallelImpl(ctx, vocab_size, dim_model, scale_weights, dtype));
+        pimpl.reset(new impl::RowParallelImpl(ctx, vocab_size, dim_model, scale_weights, dtype));
     } else {
         pimpl.reset(new impl::NormalImpl(ctx, vocab_size, dim_model, scale_weights, dtype));
     }
     std::cout << ">>>>>>>> RawEmbedding::RawEmbedding" << std::endl;
-    add_parameter("lm_head.weight", pimpl->get_weight());
+    add_parameter("weight", pimpl->get_weight());
 }
 
 RawEmbedding::~RawEmbedding() = default;
@@ -88,7 +119,13 @@ void RawEmbedding::load_state_dict(const core::Context &ctx,
                                    const std::map<std::string, const core::Tensor> &state_dict,
                                    const std::string &prefix,
                                    bool allow_missing) {
-    std::cout << "haha RawEmbedding::load_state_dict" << std::endl;
+    std::cout << "[embedding] RawEmbedding::load_state_dict" << std::endl;
+    auto row_ptr = dynamic_cast<impl::RowParallelImpl *>(pimpl.get());
+    if (row_ptr) {
+        row_ptr->load_state_dict(ctx, state_dict, prefix, allow_missing);
+    } else {
+        core::Layer::load_state_dict(ctx, state_dict, prefix, allow_missing);
+    }
 }
 
 } // namespace nn
