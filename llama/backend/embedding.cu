@@ -70,7 +70,8 @@ RawEmbedding::RawEmbedding(const core::Context &ctx,
     } else {
         pimpl.reset(new impl::NormalImpl(ctx, vocab_size, dim_model, scale_weights, dtype));
     }
-    add_parameter("weight", pimpl->get_weight());
+    std::cout << ">>>>>>>> RawEmbedding::RawEmbedding" << std::endl;
+    add_parameter("lm_head.weight", pimpl->get_weight());
 }
 
 RawEmbedding::~RawEmbedding() = default;

@@ -26,7 +26,7 @@ file(GLOB_RECURSE BACKEND_SOURCES
     "backend/*.cu"
 )
 
-add_library(backend STATIC ${BACKEND_SOURCES})
+add_library(backend SHARED ${BACKEND_SOURCES})
 set_property(TARGET backend PROPERTY POSITION_INDEPENDENT_CODE ON)
 
 target_include_directories(backend

@@ -18,6 +18,8 @@ void Layer::add_submodule(const std::string &name, Layer *module) {
 void Layer::add_parameter(const std::string &name, Tensor &t) {
     parameters.insert(std::make_pair(name, &t));
     param_names.push_back(name);
+    std::cout << "********************* add parameter: " << name << std::endl;
+    std::cout << "param_names.size(): " << param_names.size() << std::endl;
 }
 
 void print_layers(std::ostream &os, const Layer *layer, int depth) {
@@ -86,7 +88,8 @@ void Layer::load_state_dict(
     const std::map<std::string, const Tensor> &state_dict,
     const std::string &prefix,
     bool allow_missing) {
-    std::cout << ">>>> Layer::load_state_dict" << std::endl;
+    std::cout << ">>>> Layer::load_state_dict, prefix: " << prefix << std::endl;
+    std::cout << "param_names.size(): " << param_names.size() << std::endl;
     this->prefix = prefix;
     for (auto &p_name : param_names) {
         std::string name = prefix + "." + p_name; // full name
