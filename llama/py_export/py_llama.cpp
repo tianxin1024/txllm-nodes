@@ -70,6 +70,7 @@ public:
         auto ctx = engine_->create_context({0});
         bmengine::core::WithDevice device(ctx, 0);
         model_->load_state_dict(ctx, tensor_dict, prefix);
+        std::cout << "[py_llama] load_state_dict " << std::endl;
         // engine_->device_foreach([this, &tensor_dict](int i) {
         //     auto ctx = engine_->create_context_rank(i);
         //     auto with_device = ctx.with_device(0);

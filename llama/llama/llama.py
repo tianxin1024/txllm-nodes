@@ -148,21 +148,13 @@ class LLaMA:
                 if param.dtype == torch.bfloat16:
                     state_dict[name] = param.half()
 
-        # new_state_dict = {
-        #     LLaMALoader._replace_name(name) : np.atleast_1d(trans_type(param.dtype, param).cpu().numpy())
-        #     for name, param in state_dict.items()
-        # }
-        # print(new_state_dict)
+        new_state_dict = {
+            LLaMALoader._replace_name(name) : np.atleast_1d(trans_type(param.dtype, param).cpu().numpy())
+            for name, param in state_dict.items()
+        }
 
-        new_state_dict = {}
-        count = 0
-        for name, params in state_dict.items():
-            if (count > 2):
-                break
-            new_state_dict[LLaMALoader._replace_name(name)] = np.atleast_1d(trans_type(params.dtype, params).cpu().numpy()) 
-            count += 1
-
-        print(new_state_dict)
+        for k, v in new_state_dict.items():
+            print("key: ", k, "\t\t value.shape: ", v.shape)
 
         self._model.load_state_dict_1(new_state_dict)
 

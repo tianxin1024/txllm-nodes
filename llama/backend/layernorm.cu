@@ -69,7 +69,14 @@ void LayerNorm::load_state_dict(const core::Context &ctx,
                                 const std::map<std::string, const core::Tensor> &state_dict,
                                 const std::string &prefix,
                                 bool allow_missing) {
-    std::cout << "LayerNorm::load_state_dict" << std::endl;
+    std::cout << "[layernorm] LayerNorm::load_state_dict" << std::endl;
+    impl::MultiHeadImpl *p = dynamic_cast<impl::MultiHeadImpl *>(pimpl.get());
+    if (p) {
+        auto name = prefix + ".weight";
+        ctx.load_parameter(&p->weight, name, state_dict, true, core::DistLayout::ROW);
+    } else {
+        core::Layer::load_state_dict(ctx, state_dict, prefix, allow_missing);
+    }
 }
 
 } // namespace nn

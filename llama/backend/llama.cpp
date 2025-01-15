@@ -5,8 +5,8 @@ namespace model {
 
 LLaMA::LLaMA(core::Context &ctx, ModelConfig model_config, QuantConfig quant_config, bool parallel) :
     LLaMALike(model_config),
-    // ln_after_enc(ctx, dim_model, false, eps,
-    //              model_config.model_type == "cpm_dragonfly" ? dim_model / model_config.dim_model_base : 1.0, dtype),
+    ln_after_enc(ctx, dim_model, false, eps,
+                 model_config.model_type == "cpm_dragonfly" ? dim_model / model_config.dim_model_base : 1.0, dtype),
     token_embedding(ctx, dim_model, vocab_size, false, dtype, parallel),
     lm_head(ctx, dim_model, vocab_size, false, dtype, parallel),
     parallel(parallel),
@@ -30,12 +30,12 @@ LLaMA::LLaMA(core::Context &ctx, ModelConfig model_config, QuantConfig quant_con
     // }
 
     // add_submodule("layers", encoder);
-    // add_submodule("output_layernorm", ln_after_enc);
+    add_submodule("output_layernorm", ln_after_enc);
     add_submodule("token_embedding", token_embedding);
 
-    // if (!tie_lm_head) {
-    //     add_submodule("lm_head", lm_head);
-    // }
+    if (!tie_lm_head) {
+        add_submodule("lm_head", lm_head);
+    }
 
     // if (model_config.model_type == "cohere") {
     //     tie_lm_head = true;

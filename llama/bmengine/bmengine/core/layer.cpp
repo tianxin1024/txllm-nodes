@@ -91,7 +91,7 @@ void Layer::load_state_dict(
     const std::string &prefix,
     bool allow_missing) {
     std::cout << ">>>> Layer::load_state_dict, prefix: " << prefix << std::endl;
-    std::cout << "param_names.size(): " << this->param_names.size() << "[this]: " << this << std::endl;
+    std::cout << "param_names.size(): " << this->param_names.size() << ", [this]: " << this << std::endl;
     this->prefix = prefix;
     for (auto &p_name : this->param_names) {
         std::string name = prefix + "." + p_name; // full name
@@ -104,7 +104,6 @@ void Layer::load_state_dict(
     // load recursively
     for (auto &m_name : module_names) {
         std::cout << "[Layer] Load module: " << m_name << std::endl;
-        std::cout << modules[m_name] << std::endl;
         modules[m_name]->load_state_dict(ctx, state_dict, prefix + "." + m_name, allow_missing);
     }
 }

@@ -59,7 +59,7 @@ private:
     bool tie_lm_head;
 
     // functions::ModuleList<nn::EncoderLayer> encoder;
-    // nn::LayerNorm ln_after_enc;
+    nn::LayerNorm ln_after_enc;
     nn::RawEmbedding lm_head;
     nn::RawEmbedding token_embedding;
 

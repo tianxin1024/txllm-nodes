@@ -208,12 +208,30 @@ class LLaMALoader(ModelLoader):
     @staticmethod
     def _replace_name(s):
         s = re.sub("model.embed_tokens.weight", "token_embedding.weight", s)
-        s = re.sub("model.nor.weight", "output_layernorm.weight", s)
+        s = re.sub("model.norm.weight", "output_layernorm.weight", s)
         s = re.sub(
             "model.layers.([0-9]+).input_layernorm.(weight|scales|qweight|qzeros)",
             "layers.\\1.ln_attn.\\2",
             s,
         )
+        s = re.sub(
+            "model.layers.([0-9]+).post_attention_layernorm.weight",
+            "layers.\\1.ln_ff.weight",
+            s,
+        )
+        s = re.sub(
+            "model.layers.([0-9]+).self.attn.([qkv])_proj.",
+            "layers.\\1.attn.project_\\2.",
+            s,
+        )
+        s = re.sub(
+            "model.layers.([0-9]+).self.attn.o_proj.",
+            "layers.\\1.attn.attn_out.",
+            s,
+        )
+        s = re.sub("model.layers.([0-9]+).mlp.gate_proj.", "layers.\\1.ff.w_in.", s)
+        s = re.sub("model.layers.([0-9]+).mlp.up_proj.", "layers.\\1.ff.w_gated.", s)
+        s = re.sub("model.layers.([0-9]+).mlp.down_proj.", "layers.\\1.ff.w_out.", s)
 
         return "llama." + s
 
