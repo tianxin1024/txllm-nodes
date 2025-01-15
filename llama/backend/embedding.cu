@@ -54,9 +54,6 @@ public:
 
 }; // end of class RawEmbedding::impl::NormalImpl
 
-// class RawEmbedding::impl::RowParallelImpl : public RawEmbedding::impl {
-// }; // end of class RawEmbedding::impl::RowParallelImpl
-
 RawEmbedding::RawEmbedding(const core::Context &ctx,
                            int dim_model,
                            int vocab_size,
@@ -91,7 +88,7 @@ void RawEmbedding::load_state_dict(const core::Context &ctx,
                                    const std::map<std::string, const core::Tensor> &state_dict,
                                    const std::string &prefix,
                                    bool allow_missing) {
-    std::cout << "RawEmbedding::load_state_dict" << std::endl;
+    std::cout << "haha RawEmbedding::load_state_dict" << std::endl;
 }
 
 } // namespace nn

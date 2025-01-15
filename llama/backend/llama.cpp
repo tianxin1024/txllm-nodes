@@ -31,7 +31,7 @@ LLaMA::LLaMA(core::Context &ctx, ModelConfig model_config, QuantConfig quant_con
 
     // add_submodule("layers", encoder);
     // add_submodule("output_layernorm", ln_after_enc);
-    // add_submodule("token_embedding", token_embedding);
+    add_submodule("token_embedding", token_embedding);
 
     // if (!tie_lm_head) {
     //     add_submodule("lm_head", lm_head);

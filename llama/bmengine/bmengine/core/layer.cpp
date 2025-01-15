@@ -19,7 +19,7 @@ void Layer::add_parameter(const std::string &name, Tensor &t) {
     parameters.insert(std::make_pair(name, &t));
     param_names.push_back(name);
     std::cout << "********************* add parameter: " << name << std::endl;
-    std::cout << "param_names.size(): " << param_names.size() << std::endl;
+    std::cout << "param_names.size(): " << param_names.size() << "[this]: " << this << std::endl;
 }
 
 void print_layers(std::ostream &os, const Layer *layer, int depth) {
@@ -65,6 +65,8 @@ void Layer::init_parameters(const Context &ctx, curandGenerator_t &gen, const st
 
 std::map<const std::string, Tensor *> Layer::named_parameters(
     const std::string &prefix, bool recursive) {
+    std::cout << ">>>> Layer::named_parameters, prefix: " << prefix << std::endl;
+    std::cout << "[named_parameters] param_names.size(): " << param_names.size() << "[this]: " << this << std::endl;
     std::map<const std::string, Tensor *> named_params;
     std::string layer_prefix = prefix;
     if ((prefix.size() > 0) && (prefix[prefix.size() - 1] != '.')) {
@@ -89,9 +91,9 @@ void Layer::load_state_dict(
     const std::string &prefix,
     bool allow_missing) {
     std::cout << ">>>> Layer::load_state_dict, prefix: " << prefix << std::endl;
-    std::cout << "param_names.size(): " << param_names.size() << std::endl;
+    std::cout << "param_names.size(): " << this->param_names.size() << "[this]: " << this << std::endl;
     this->prefix = prefix;
-    for (auto &p_name : param_names) {
+    for (auto &p_name : this->param_names) {
         std::string name = prefix + "." + p_name; // full name
         std::cout << ">>>> Load param: " << name << std::endl;
         if (ctx.debug() >= 2) {
@@ -101,7 +103,7 @@ void Layer::load_state_dict(
     }
     // load recursively
     for (auto &m_name : module_names) {
-        std::cout << "Load module: " << m_name << std::endl;
+        std::cout << "}}}}}}}}}}}}}} Load module: " << m_name << std::endl;
         std::cout << modules[m_name] << std::endl;
         modules[m_name]->load_state_dict(ctx, state_dict, prefix + "." + m_name, allow_missing);
     }
