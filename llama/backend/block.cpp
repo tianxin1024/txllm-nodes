@@ -2,8 +2,15 @@
 #include "backend/layernorm.h"
 #include "backend/attention.h"
 #include "backend/feedforward.h"
+#include "backend/model_context.h"
+#include "backend/utils.h"
+#include <bmengine/functions/element.h>
+#include "private/allocator.h"
 
 namespace nn {
+
+using namespace bmengine;
+using model::ModelContext;
 
 class EncoderLayer::impl {
 public:
@@ -86,7 +93,21 @@ void EncoderLayer::load_state_dict(const core::Context &ctx,
                                    const std::map<std::string, const core::Tensor> &state_dict,
                                    const std::string &prefix,
                                    bool allow_missing) {
-    std::cout << "EncoderLayer::load_state_dict" << std::endl;
+    std::cout << "[block] EncoderLayer::load_state_dict" << std::endl;
+    using BinaryOp = bmengine::functions::BinaryElementwiseOp;
+    BinaryOp mul_op(ctx, BinaryOp::Mul);
+    BinaryOp div_op(ctx, BinaryOp::Div);
+
+    // ModelContext *m_ctx = dynamic_cast<ModelContext *>(const_cast<core::Context *>(&ctx));
+
+    pimpl->prefix = prefix;
+    // if (m_ctx && m_ctx->smooth_quant_alpha() > 0) {
+    // }
+    core::Layer::load_state_dict(ctx, state_dict, prefix, allow_missing);
+    int freeze_mem = utils::get_int_env("FREEZE_MEM_EACH_LAYER", 0);
+    if (freeze_mem) {
+        ctx.get_allocator()->freeze_model_memory();
+    }
 }
 
 } // namespace nn

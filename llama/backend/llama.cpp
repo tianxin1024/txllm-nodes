@@ -14,24 +14,24 @@ LLaMA::LLaMA(core::Context &ctx, ModelConfig model_config, QuantConfig quant_con
     std::cout << "LLaMA::LLaMA" << std::endl;
     std::vector<int> devices = partition_layer_devices(ctx, num_layers);
 
-    // for (int i = 0; i < num_layers; i++) {
-    //     ctx.switch_to_device(devices[i]);
+    for (int i = 0; i < num_layers; i++) {
+        ctx.switch_to_device(devices[i]);
 
-    //     ctx.set_current_layer(i);
+        ctx.set_current_layer(i);
 
-    //     encoder.append(ctx, model_config, quant_config, parallel);
-    //     encoder[i].output_dev = devices[i];
-    // }
-    // encoder[num_layers - 1].output_dev = 0;
-    // ctx.switch_to_device(0);
+        encoder.append(ctx, model_config, quant_config, parallel);
+        encoder[i].output_dev = devices[i];
+    }
+    encoder[num_layers - 1].output_dev = 0;
+    ctx.switch_to_device(0);
 
     // if (model_config.model_type == "cpm_dragonfly") {
     //     token_embedding.set_scale_factor(model_config.scale_emb);
     // }
 
-    // add_submodule("layers", encoder);
-    add_submodule("output_layernorm", ln_after_enc);
+    // add_submodule("output_layernorm", ln_after_enc);
     add_submodule("token_embedding", token_embedding);
+    add_submodule("layers", encoder);
 
     if (!tie_lm_head) {
         add_submodule("lm_head", lm_head);

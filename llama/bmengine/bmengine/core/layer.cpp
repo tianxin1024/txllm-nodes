@@ -18,8 +18,6 @@ void Layer::add_submodule(const std::string &name, Layer *module) {
 void Layer::add_parameter(const std::string &name, Tensor &t) {
     parameters.insert(std::make_pair(name, &t));
     param_names.push_back(name);
-    std::cout << "********************* add parameter: " << name << std::endl;
-    std::cout << "param_names.size(): " << param_names.size() << "[this]: " << this << std::endl;
 }
 
 void print_layers(std::ostream &os, const Layer *layer, int depth) {
@@ -99,7 +97,9 @@ void Layer::load_state_dict(
         if (ctx.debug() >= 2) {
             std::cout << "Load param: " << name << std::endl;
         }
+        std::cout << ".........................." << std::endl;
         load_param_from_state_dict(ctx, state_dict, name, parameters[p_name], allow_missing);
+        std::cout << ".........................." << std::endl;
     }
     // load recursively
     for (auto &m_name : module_names) {
@@ -119,6 +119,8 @@ void Layer::load_param_from_state_dict(
         BM_ASSERT(allow_missing, "param " + name + " not found in state_dict");
         return;
     }
+    std::cout << "-------------------------------" << std::endl;
+    std::cout << it->second.info() << std::endl;
     ctx.assign_or_copy(param, &it->second);
 }
 

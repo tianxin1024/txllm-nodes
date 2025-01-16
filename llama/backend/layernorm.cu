@@ -52,9 +52,9 @@ LayerNorm::LayerNorm(const core::Context &ctx,
     if (num_head > 1) {
         pimpl.reset(new impl::MultiHeadImpl(ctx, dim_model, eps, scale, dtype, num_head));
     } else {
-        // pimpl->reset(quant ?
-        //                  new impl::QuantImpl(ctx, dim_model, eps, scale, dtype) :
-        //                  new impl(ctx, dim_model, eps, scale, dtype));
+        pimpl->reset(quant ?
+                         new impl::QuantImpl(ctx, dim_model, eps, scale, dtype) :
+                         new impl(ctx, dim_model, eps, scale, dtype));
     }
     add_parameter("weight", pimpl->weight);
 }
