@@ -93,7 +93,6 @@ void EncoderLayer::load_state_dict(const core::Context &ctx,
                                    const std::map<std::string, const core::Tensor> &state_dict,
                                    const std::string &prefix,
                                    bool allow_missing) {
-    std::cout << "[block] EncoderLayer::load_state_dict" << std::endl;
     using BinaryOp = bmengine::functions::BinaryElementwiseOp;
     BinaryOp mul_op(ctx, BinaryOp::Mul);
     BinaryOp div_op(ctx, BinaryOp::Div);

@@ -1,5 +1,6 @@
 #include "backend/feedforward.h"
 #include "backend/linear.h"
+#include "backend/utils.h"
 #include <bmengine/functions/all.h>
 
 namespace nn {
@@ -49,6 +50,11 @@ public:
 
     virtual ~NormalImpl() = default;
 
+    void try_fuse_up_weights(const core::Context &ctx) {
+        auto a = Linear::fuse(ctx, w_in, w_gated);
+        w_fuse_in_gated = std::unique_ptr<Linear>(a);
+    }
+
 }; // end of class FeedForward::impl::NormalImpl
 
 FeedForward::FeedForward(const core::Context &ctx,
@@ -68,7 +74,10 @@ void FeedForward::load_state_dict(const core::Context &ctx,
                                   const std::map<std::string, const core::Tensor> &state_dict,
                                   const std::string &prefix,
                                   bool allow_missing) {
-    std::cout << "FeedForward::load_state_dict" << std::endl;
+    core::Layer::load_state_dict(ctx, state_dict, prefix, allow_missing);
+    int fuse_w_in = utils::get_int_env("CPM_FUSE_FF_IN", 0);
+    auto normal_impl = dynamic_cast<impl::NormalImpl *>(pimpl.get());
+    normal_impl->try_fuse_up_weights(ctx);
 }
 
 } // namespace nn

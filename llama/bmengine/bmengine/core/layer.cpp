@@ -63,8 +63,6 @@ void Layer::init_parameters(const Context &ctx, curandGenerator_t &gen, const st
 
 std::map<const std::string, Tensor *> Layer::named_parameters(
     const std::string &prefix, bool recursive) {
-    std::cout << ">>>> Layer::named_parameters, prefix: " << prefix << std::endl;
-    std::cout << "[named_parameters] param_names.size(): " << param_names.size() << "[this]: " << this << std::endl;
     std::map<const std::string, Tensor *> named_params;
     std::string layer_prefix = prefix;
     if ((prefix.size() > 0) && (prefix[prefix.size() - 1] != '.')) {
@@ -88,22 +86,16 @@ void Layer::load_state_dict(
     const std::map<std::string, const Tensor> &state_dict,
     const std::string &prefix,
     bool allow_missing) {
-    std::cout << ">>>> Layer::load_state_dict, prefix: " << prefix << std::endl;
-    std::cout << "param_names.size(): " << this->param_names.size() << ", [this]: " << this << std::endl;
     this->prefix = prefix;
     for (auto &p_name : this->param_names) {
         std::string name = prefix + "." + p_name; // full name
-        std::cout << ">>>> Load param: " << name << std::endl;
         if (ctx.debug() >= 2) {
             std::cout << "Load param: " << name << std::endl;
         }
-        std::cout << ".........................." << std::endl;
         load_param_from_state_dict(ctx, state_dict, name, parameters[p_name], allow_missing);
-        std::cout << ".........................." << std::endl;
     }
     // load recursively
     for (auto &m_name : module_names) {
-        std::cout << "[Layer] Load module: " << m_name << std::endl;
         modules[m_name]->load_state_dict(ctx, state_dict, prefix + "." + m_name, allow_missing);
     }
 }
@@ -119,8 +111,6 @@ void Layer::load_param_from_state_dict(
         BM_ASSERT(allow_missing, "param " + name + " not found in state_dict");
         return;
     }
-    std::cout << "-------------------------------" << std::endl;
-    std::cout << it->second.info() << std::endl;
     ctx.assign_or_copy(param, &it->second);
 }
 

@@ -29,6 +29,8 @@ model::ModelConfig create_config(
     bool weight_transposed,
     const std::string &dtype) {
     auto data_type = bmengine::core::name_to_data_type(dtype);
+    std::cout << "----------------------------dim_ff----------------------------" << std::endl;
+    std::cout << "dim_ff: " << dim_ff << std::endl;
     return {"cpm_bee", num_layers, dim_model, num_heads, dim_head, dim_ff, vocab_size,
             eps, num_kv_heads, mask_modules, scale_weights, weight_transposed, 0, 1.0, 1.0, data_type};
 }

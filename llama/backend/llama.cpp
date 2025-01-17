@@ -11,7 +11,6 @@ LLaMA::LLaMA(core::Context &ctx, ModelConfig model_config, QuantConfig quant_con
     lm_head(ctx, dim_model, vocab_size, false, dtype, parallel),
     parallel(parallel),
     tie_lm_head(model_config.tie_lm_head) {
-    std::cout << "LLaMA::LLaMA" << std::endl;
     std::vector<int> devices = partition_layer_devices(ctx, num_layers);
 
     for (int i = 0; i < num_layers; i++) {
@@ -25,11 +24,11 @@ LLaMA::LLaMA(core::Context &ctx, ModelConfig model_config, QuantConfig quant_con
     encoder[num_layers - 1].output_dev = 0;
     ctx.switch_to_device(0);
 
-    // if (model_config.model_type == "cpm_dragonfly") {
-    //     token_embedding.set_scale_factor(model_config.scale_emb);
-    // }
+    if (model_config.model_type == "cpm_dragonfly") {
+        token_embedding.set_scale_factor(model_config.scale_emb);
+    }
 
-    // add_submodule("output_layernorm", ln_after_enc);
+    add_submodule("output_layernorm", ln_after_enc);
     add_submodule("token_embedding", token_embedding);
     add_submodule("layers", encoder);
 
@@ -37,11 +36,11 @@ LLaMA::LLaMA(core::Context &ctx, ModelConfig model_config, QuantConfig quant_con
         add_submodule("lm_head", lm_head);
     }
 
-    // if (model_config.model_type == "cohere") {
-    //     tie_lm_head = true;
-    //     token_embedding.set_logit_scale(model_config.logit_scale);
-    //     ln_after_enc.set_rms(false);
-    // }
+    if (model_config.model_type == "cohere") {
+        tie_lm_head = true;
+        token_embedding.set_logit_scale(model_config.logit_scale);
+        ln_after_enc.set_rms(false);
+    }
 }
 
 } // namespace model

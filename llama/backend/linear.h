@@ -37,6 +37,8 @@ public:
                          const std::string &prefix,
                          bool allow_missing = false) override;
 
+    static Linear *fuse(const core::Context &ctx, Linear &a, Linear &b);
+
 }; // end of class Linear
 
 } // namespace nn

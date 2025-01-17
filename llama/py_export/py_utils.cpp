@@ -91,7 +91,7 @@ model::ModelConfig pydict_to_model_config(py::dict &cfg) {
     int dim_model = cfg["dim_model"].cast<int>();
     int num_heads = cfg["num_heads"].cast<int>();
     int dim_head = cfg["dim_head"].cast<int>();
-    int dim_ff = cfg["dim_head"].cast<int>();
+    int dim_ff = cfg["dim_ff"].cast<int>();
     int vocab_size = cfg["vocab_size"].cast<int>();
     float eps = cfg.contains("eps") ? cfg["eps"].cast<float>() : 1e-5;
     int num_kv_heads = cfg.contains("num_kv_heads") ? cfg["num_kv_heads"].cast<int>() : -1;

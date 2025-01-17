@@ -78,7 +78,6 @@ void LayerNorm::load_state_dict(const core::Context &ctx,
                                 const std::map<std::string, const core::Tensor> &state_dict,
                                 const std::string &prefix,
                                 bool allow_missing) {
-    std::cout << "[layernorm] LayerNorm::load_state_dict" << std::endl;
     impl::MultiHeadImpl *p = dynamic_cast<impl::MultiHeadImpl *>(pimpl.get());
     if (p) {
         auto name = prefix + ".weight";

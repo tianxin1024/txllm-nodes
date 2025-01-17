@@ -152,7 +152,7 @@ class LLaMA:
             LLaMALoader._replace_name(name) : np.atleast_1d(trans_type(param.dtype, param).cpu().numpy())
             for name, param in state_dict.items()
         }
-        print(new_state_dict)
+        # print(new_state_dict)
 
         # new_state_dict = {}
         # count = 0
@@ -162,9 +162,8 @@ class LLaMA:
         #     new_state_dict[LLaMALoader._replace_name(name)] = np.atleast_1d(trans_type(params.dtype, params).cpu().numpy()) 
         #     count += 1
 
-        for k, v in new_state_dict.items():
-            print("key: ", k, "\t\t value.shape: ", v.shape)
-
+        # for k, v in new_state_dict.items():
+        #     print("key: ", k, "\t\t value.shape: ", v.shape)
 
         self._model.load_state_dict_1(new_state_dict)
 

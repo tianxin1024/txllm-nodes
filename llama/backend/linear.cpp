@@ -1,4 +1,5 @@
 #include "backend/linear.h"
+#include "backend/utils.h"
 #include <bmengine/core/core.h>
 #include <bmengine/functions/all.h>
 
@@ -23,6 +24,11 @@ public:
         dim_in(dim_in), dim_out(dim_out), act_fn_type(act_fn), weight_transposed(w_trans), quant(quant), dtype(dtype) {
     }
     virtual ~impl() = default;
+
+    virtual void load_state_dict(const core::Context &ctx,
+                                 const std::map<std::string, const core::Tensor> &state_dict,
+                                 const std::string &prefix,
+                                 bool allow_missing) = 0;
 
 }; // end of class Lienar::impl
 
@@ -63,6 +69,27 @@ public:
 
     ~NormalLinear() = default;
 
+    static NormalLinear *fuse(const core::Context &ctx, NormalLinear &a, NormalLinear &b) {
+        std::cout << ">>>>>>>> NormalLinear fuse" << std::endl;
+    }
+
+    void load_state_dict(const core::Context &ctx,
+                         const std::map<std::string, const core::Tensor> &state_dict,
+                         const std::string &prefix,
+                         bool allow_missing) override {
+        std::vector<size_t> shape({weight_transposed ? dim_in : dim_out,   // W^T
+                                   weight_transposed ? dim_out : dim_in}); // W
+        weight = std::make_unique<core::Tensor>(ctx.parameter(shape, dtype));
+        auto name = prefix + ".weight";
+        ctx.load_parameter(weight.get(), name, state_dict, parallel, dist_layout);
+
+        auto bias_layout = dist_layout == core::DistLayout::ROW ? core::DistLayout::COLUMNAR : core::DistLayout::REPLICATED;
+        if (has_bias) {
+            name = prefix + ".bias";
+            bias = ctx.parameter({dim_out}, dtype);
+            ctx.load_parameter(&bias, name, state_dict, parallel, bias_layout);
+        }
+    }
 }; // end of class Linear::impl::NormalLinear
 
 Linear::Linear(const core::Context &ctx,
@@ -113,7 +140,29 @@ void Linear::load_state_dict(const core::Context &ctx,
                              const std::map<std::string, const core::Tensor> &state_dict,
                              const std::string &prefix,
                              bool allow_missing) {
-    std::cout << "Linear::load_state_dict" << std::endl;
+    this->prefix = prefix;
+    pimpl->load_state_dict(ctx, state_dict, prefix, allow_missing);
+
+    bool dequant_desc_act = utils::get_int_env("DEQUANT_DESC_ACT", 0) > 0;
+}
+
+Linear *Linear::fuse(const core::Context &ctx, Linear &q, Linear &k) {
+    std::unique_ptr<Linear> ret(new Linear());
+
+    if (q.pimpl->quant == 0) {
+        auto q_ptr = dynamic_cast<impl::NormalLinear *>(q.pimpl.get());
+        auto k_ptr = dynamic_cast<impl::NormalLinear *>(k.pimpl.get());
+        auto fused_ptr = impl::NormalLinear::fuse(ctx, *q_ptr, *k_ptr);
+        ret->pimpl = std::unique_ptr<impl>(fused_ptr);
+    } else {
+        return nullptr;
+    }
+
+    if (q.name == "w_in") {
+        ret->name = "FUSE_ff_in";
+    }
+
+    return ret.release();
 }
 
 } // namespace nn
