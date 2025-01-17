@@ -4,7 +4,7 @@ namespace nn {
 
 class LayerNorm::impl {
 public:
-    // class QuantImpl;
+    class QuantImpl;
     class MultiHeadImpl;
     core::Tensor weight;
     core::Tensor bias;
@@ -41,6 +41,15 @@ public:
 
 }; // end of class LayerNorm::impl::MultiHeadImpl
 
+class LayerNorm::impl::QuantImpl : public LayerNorm::impl {
+public:
+    QuantImpl(const core::Context &ctx, unsigned int dim_model, float eps, float scale, core::DataType dtype) :
+        LayerNorm::impl(ctx, dim_model, eps, scale, dtype) {
+    }
+
+    virtual ~QuantImpl() = default;
+};
+
 LayerNorm::LayerNorm(const core::Context &ctx,
                      int dim_model,
                      bool quant,
@@ -52,9 +61,9 @@ LayerNorm::LayerNorm(const core::Context &ctx,
     if (num_head > 1) {
         pimpl.reset(new impl::MultiHeadImpl(ctx, dim_model, eps, scale, dtype, num_head));
     } else {
-        pimpl->reset(quant ?
-                         new impl::QuantImpl(ctx, dim_model, eps, scale, dtype) :
-                         new impl(ctx, dim_model, eps, scale, dtype));
+        pimpl.reset(quant ?
+                        new impl::QuantImpl(ctx, dim_model, eps, scale, dtype) :
+                        new impl(ctx, dim_model, eps, scale, dtype));
     }
     add_parameter("weight", pimpl->weight);
 }
