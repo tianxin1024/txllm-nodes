@@ -98,7 +98,6 @@ RawEmbedding::RawEmbedding(const core::Context &ctx,
     } else {
         pimpl.reset(new impl::NormalImpl(ctx, vocab_size, dim_model, scale_weights, dtype));
     }
-    std::cout << ">>>>>>>> RawEmbedding::RawEmbedding" << std::endl;
     add_parameter("weight", pimpl->get_weight());
 }
 
@@ -119,7 +118,6 @@ void RawEmbedding::load_state_dict(const core::Context &ctx,
                                    const std::map<std::string, const core::Tensor> &state_dict,
                                    const std::string &prefix,
                                    bool allow_missing) {
-    std::cout << "[embedding] RawEmbedding::load_state_dict" << std::endl;
     auto row_ptr = dynamic_cast<impl::RowParallelImpl *>(pimpl.get());
     if (row_ptr) {
         row_ptr->load_state_dict(ctx, state_dict, prefix, allow_missing);

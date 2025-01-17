@@ -85,10 +85,17 @@ public:
     }
     virtual ~impl() = default;
 
+    virtual void set_output_type(core::DataType dtype) = 0;
+
     virtual void load_state_dict(const core::Context &ctx,
                                  const std::map<std::string, const core::Tensor> &state_dict,
                                  const std::string &prefix,
                                  bool allow_missing) = 0;
+
+    virtual void set_has_bias(bool b) {
+        if (b)
+            throw std::runtime_error("Bias is not implemented");
+    }
 
 }; // end of class Lienar::impl
 
@@ -128,6 +135,15 @@ public:
     }
 
     ~NormalLinear() = default;
+
+    void set_output_type(core::DataType dtype) override {
+        gemm_A_B.set_output_type(dtype);
+        gemm_A_Btrans.set_output_type(dtype);
+    }
+
+    void set_has_bias(bool b) override {
+        has_bias = b;
+    }
 
     static NormalLinear *fuse(const core::Context &ctx, NormalLinear &a, NormalLinear &b) {
         BM_ASSERT_EQ(a.scale_factor, b.scale_factor, "scale_factor not equal");
@@ -216,6 +232,10 @@ Linear::Linear(const core::Context &ctx,
 
 Linear::~Linear() = default;
 
+void Linear::set_output_type(core::DataType dtype) {
+    pimpl->set_output_type(dtype);
+}
+
 void Linear::load_state_dict(const core::Context &ctx,
                              const std::map<std::string, const core::Tensor> &state_dict,
                              const std::string &prefix,
@@ -243,6 +263,10 @@ Linear *Linear::fuse(const core::Context &ctx, Linear &q, Linear &k) {
     }
 
     return ret.release();
+}
+
+void Linear::set_has_bias(bool b) {
+    pimpl->set_has_bias(b);
 }
 
 } // namespace nn

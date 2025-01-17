@@ -32,12 +32,16 @@ public:
            const std::string &name,
            const core::Tensor &w);
 
+    void set_output_type(core::DataType dtype);
+
     void load_state_dict(const core::Context &ctx,
                          const std::map<std::string, const core::Tensor> &state_dict,
                          const std::string &prefix,
                          bool allow_missing = false) override;
 
     static Linear *fuse(const core::Context &ctx, Linear &a, Linear &b);
+
+    void set_has_bias(bool b = true);
 
 }; // end of class Linear
 
