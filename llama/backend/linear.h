@@ -41,4 +41,6 @@ public:
 
 }; // end of class Linear
 
+core::Tensor concat_dim0(const core::Context &ctx, std::vector<core::Tensor *> tensors, bool stack = true);
+
 } // namespace nn

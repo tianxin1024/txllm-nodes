@@ -2,9 +2,69 @@
 #include "backend/utils.h"
 #include <bmengine/core/core.h>
 #include <bmengine/functions/all.h>
+#include <bmengine/logger/std_log_op.hpp>
 
 namespace nn {
 using namespace bmengine;
+
+// tensors will be updated to returned tensor's slice
+core::Tensor concat_dim0(const core::Context &ctx, std::vector<core::Tensor *> tensors, bool stack) {
+    BM_ASSERT(!tensors.empty(), "");
+    auto shape = tensors[0]->shape();
+    auto shape_a = tensors[0]->shape();
+    shape[0] = 0;
+    std::vector<size_t> dim0s;
+    std::vector<size_t> bytes;
+    std::vector<void *> datas;
+    for (core::Tensor *t : tensors) {
+        if (stack) {
+            BM_ASSERT_EQ(shape_a, t->shape(), "shape mismatch");
+        }
+        shape[0] += t->size(0);
+        dim0s.push_back(t->size(0));
+        bytes.push_back(t->nbytes());
+        datas.push_back(t->data());
+    }
+    core::Tensor ret = ctx.tensor(shape, tensors[0]->dtype());
+
+    auto stream = ctx.current_stream()->ptr;
+    auto d2d = cudaMemcpyDeviceToDevice;
+    char *dst = ret.data<char>();
+    size_t dim0 = 0;
+    std::vector<core::Tensor *> quant_scales;
+    for (size_t i = 0; i < tensors.size(); ++i) {
+        BM_CUDART_ASSERT(cudaMemcpyAsync(dst, datas[i], bytes[i], d2d, stream));
+        auto name = tensors[i]->name();
+        auto quant_scale = tensors[i]->quant_scale;
+        if (quant_scale) {
+            quant_scales.push_back(quant_scale.get());
+        }
+        *tensors[i] = ret.slice_dim0_len(dim0, dim0s[i]); // update tensors to slice
+        tensors[i]->set_name(name);
+        tensors[i]->quant_scale = quant_scale;
+        dst += bytes[i];
+        dim0 += dim0s[i];
+    }
+    if (stack) {
+        shape[0] /= tensors.size();
+        shape.insert(shape.begin(), tensors.size());
+    }
+    ret = ret.view(shape);
+    if (!quant_scales.empty()) {
+        std::cout << "oooooooooooooooooooooooooooooooo" << std::endl;
+        core::Tensor fuse_scale = concat_dim0(ctx, quant_scales, stack);
+        // int8_op::set_quant_scale(ret, fuse_scale);
+    }
+    return ret;
+}
+
+static core::Tensor concat2_dim0(const core::Context &ctx, core::Tensor &a, core::Tensor &b) {
+    return concat_dim0(ctx, {&a, &b}, false);
+}
+
+static core::Tensor concat2_dim1(const core::Context &ctx, const core::Tensor &a, const core::Tensor &b) {
+    return functions::concat_tensor(ctx, a, b, 1);
+}
 
 class Linear::impl {
 public:
@@ -70,7 +130,27 @@ public:
     ~NormalLinear() = default;
 
     static NormalLinear *fuse(const core::Context &ctx, NormalLinear &a, NormalLinear &b) {
-        std::cout << ">>>>>>>> NormalLinear fuse" << std::endl;
+        BM_ASSERT_EQ(a.scale_factor, b.scale_factor, "scale_factor not equal");
+        uint32_t dim_out = a.dim_out + b.dim_out;
+        NormalLinear *ret = new NormalLinear(
+            ctx, a.dim_in, dim_out, "", false, a.weight_transposed, a.dtype, false, core::DistLayout::ROW);
+        core::Tensor weight = a.weight_transposed ?
+                                  concat2_dim1(ctx, *a.weight, *b.weight) :
+                                  concat2_dim0(ctx, *a.weight, *b.weight);
+        ret->weight = std::make_unique<core::Tensor>(weight);
+        ret->scale_factor = a.scale_factor;
+        if (a.weight_transposed) {
+            a.weight.reset();
+            b.weight.reset();
+        } else {
+            BM_ASSERT(ret->weight->data() == a.weight->data(), "weight not match.");
+        }
+
+        if (a.has_bias) {
+            ret->bias = concat2_dim0(ctx, a.bias, b.bias);
+        }
+        ret->has_bias = a.has_bias;
+        return ret;
     }
 
     void load_state_dict(const core::Context &ctx,
