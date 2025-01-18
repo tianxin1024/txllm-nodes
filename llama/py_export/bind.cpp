@@ -12,4 +12,7 @@ PYBIND11_MODULE(llm_nodes, handle) {
     // models
     bind::define_cpm_base(handle);
     bind::define_llama(handle);
+
+    // generate
+    bind::define_dynamic_batch(handle);
 }

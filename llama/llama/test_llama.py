@@ -6,39 +6,49 @@ from transformers import LlamaTokenizer, LlamaForCausalLM
 
 from llama import LLaMAModelConfig, LLaMA
 from quant import QuantConfig, QuantType
+from dynamic_batch import GeneratorArg, DynamicBatchConfig, DynamicBatchGenerator
 
-def main(model_path="llama-13b-hf"):
+def main():
+    t0 = time.time()
     assert LlamaTokenizer, "tinyllama tokenizer load failed, pip install transformer"
+    model_dir = "/home/tianxin/data/LLM/TinyLlama-1.1B-Chat-v1.0/tinyllama-1b"
 
-    quant_config = QuantConfig(type=QuantType.AutoInt8)
-    quant_config = None
-    load_model_pt = True
-    origin_model_dir = f"/home/tianxin/data/LLM/{model_path}"
-
-    model_config_13b: LLaMAModelConfig = {
-        "num_layers": 40,
-        "dim_model": 5120,
-        "num_heads": 40,
-        "dim_head": 128,
-        "dim_ff": 13824,
-        "vocab_size": 32000,
+    model_config_tiny: LLaMAModelConfig = {
+        "num_layers": 22,      # 模型层数
+        "dim_model": 2048,     # 隐藏层维度
+        "num_heads": 16,       # 注意力头数
+        "dim_head": 128,       # 注意力头维度
+        "dim_ff": 5632,        # 前馈网络维度
+        "vocab_size": 32000,   # 词汇表大小
+        "eps": 1e-5,           # 层归一化epsilon
     }
 
-    if model_path == "llama-13b-hf":
-        model = LLaMA(
-            f"{origin_model_dir}.ckpt",
-            origin_model_dir,
-            -1,
-            memory_limit=2 << 20,
-            model_config = model_config_13b,
-            quant_config = quant_config,
-            load_model = not load_model_pt,
-            weight_transposed =not load_model_pt,
-        )
+    model = LLaMA(f"{model_dir}/model.safetensors",
+                  model_dir,
+                  -1,
+                  memory_limit = 2 << 30,
+                  model_config = model_config_tiny,)
+
+    model.load_model_safetensors(f"{model_dir}")
+    print(f">>>Load model '{model_dir}' finished in {time.time() - t0:.2f} seconds<<<")
+
+    arg = GeneratorArg(beam_size=1, max_length=100, repetition_penalty=1.0)
+
+    messages = [
+        {"role": "user", "content": "Who are you?"},
+    ]
+
+    batch_config = DynamicBatchConfig(flash_attention=False)
+    with DynamicBatchGenerator(batch_config, model) as generator:
+        print("....")
+        # req_result = generator.generate(messages, arg)
+        # print(req_result)
+
 
 
     print("done!!!")
 
 if __name__ == "__main__":
-    main("llama-13b-hf")
+    # run tinyllama
+    main()
 

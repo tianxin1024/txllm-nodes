@@ -17,4 +17,6 @@ void define_engine(py::module_ &handle);
 void define_cpm_base(py::module_ &handle);
 void define_llama(py::module_ &handle);
 
+void define_dynamic_batch(py::module_ &handle);
+
 } // namespace bind
