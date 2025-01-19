@@ -64,6 +64,10 @@ public:
         return engine_.get();
     }
 
+    virtual model::ModelBase *par_models() {
+        return model_;
+    }
+
     void load_state_dict_1(const std::map<std::string, py::array> &state_dict) {
         auto tensor_dict = bind::numpy_to_tensor(state_dict);
 

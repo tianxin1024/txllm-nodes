@@ -24,6 +24,8 @@ public:
 
     virtual bmengine::core::Engine *engine() = 0;
 
+    virtual model::ModelBase *par_models() = 0;
+
     bool is_parallel() const {
         return parallel_;
     }
