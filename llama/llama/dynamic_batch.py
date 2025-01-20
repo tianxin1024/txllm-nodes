@@ -48,6 +48,31 @@ class DynamicBatchConfig:
         if enable_prompt_caching and not rag_buffer:
             raise ValueError("prompt_caching must use with rag buffer")
 
+    def c_config(self):
+        config = llm_nodes.DynBatchConfig()
+        config.max_batch = self.max_batch
+        config.max_beam_size = self.max_beam_size
+        config.task_queue_size = self.task_queue_size
+        config.max_total_token = self.max_total_token
+        config.seed = self.seed
+        config.unk_id = self.unk_id
+        config.bos_id = self.bos_id
+        config.first_batch = self.first_batch
+        config.nccl = self.nccl
+        config.rag_buffer = self.rag_buffer
+        config.ignore_eos = self.ignore_eos
+        config.keep_eos = self.keep_eos
+        config.reserved_work_mem_mb = self.reserved_work_mem_mb
+        config.high_precision = self.high_precision
+        config.flash_attention = self.flash_attention
+        config.enable_prompt_caching = self.enable_prompt_caching
+        return config
+
+    def __repr__(self) -> str:
+        return "DynamicBatchConfig(max_batch=%d, max_beam_size=%d, task_queue_size=%d, " \
+                "max_total_token=%d, seed=%d, bos_id=%s, eos_id=%s, nccl=%s, rag_buffer=%s)" % \
+                (self.max_batch, self.max_beam_size, self.task_queue_size, self.max_total_token,
+                 self.seed, self.bos_id, self.eos_id, self.nccl, self.rag_buffer)
 
 class GeneratorArg:
     def __init__(self, 

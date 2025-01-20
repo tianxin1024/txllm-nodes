@@ -40,6 +40,26 @@ public:
 }; // end of class PyBatchGenerator
 
 void define_dynamic_batch(py::module_ &handle) {
+    py::class_<DynBatchConfig>(handle, "DynBatchConfig")
+        .def_readwrite("max_batch", &DynBatchConfig::max_batch)
+        .def_readwrite("max_beam_size", &DynBatchConfig::max_beam_size)
+        .def_readwrite("task_queue_size", &DynBatchConfig::task_queue_size)
+        .def_readwrite("max_total_token", &DynBatchConfig::max_total_token)
+        .def_readwrite("seed", &DynBatchConfig::seed)
+        .def_readwrite("eos_id", &DynBatchConfig::eos_id)
+        .def_readwrite("bos_id", &DynBatchConfig::bos_id)
+        .def_readwrite("unk_id", &DynBatchConfig::unk_id)
+        .def_readwrite("first_batch", &DynBatchConfig::first_batch)
+        .def_readwrite("nccl", &DynBatchConfig::nccl)
+        .def_readwrite("rag_buffer", &DynBatchConfig::rag_buffer)
+        .def_readwrite("ignore_eos", &DynBatchConfig::ignore_eos)
+        .def_readwrite("keep_eos", &DynBatchConfig::keep_eos)
+        .def_readwrite("reserved_work_mem_mb", &DynBatchConfig::reserved_work_mem_mb)
+        .def_readwrite("high_precision", &DynBatchConfig::high_precision)
+        .def_readwrite("flash_attention", &DynBatchConfig::flash_attention)
+        .def_readwrite("enable_prompt_caching", &DynBatchConfig::enable_prompt_caching)
+        .def(py::init());
+
     py::class_<PyBatchGenerator, std::shared_ptr<PyBatchGenerator>>(handle, "BatchGenerator")
         .def(py::init(&PyBatchGenerator::create));
 }

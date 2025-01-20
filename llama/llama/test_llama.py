@@ -41,8 +41,8 @@ def main():
     batch_config = DynamicBatchConfig(flash_attention=False)
     with DynamicBatchGenerator(batch_config, model) as generator:
         print("....")
-        # req_result = generator.generate(messages, arg)
-        # print(req_result)
+        req_result = generator.generate(messages, arg)
+        print(req_result)
 
 
 
