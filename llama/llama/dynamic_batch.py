@@ -155,8 +155,17 @@ class DynamicBatchGenerator:
 
         self._thread = None
         self._do_verify = int(os.environ.get("VERIFY_MAX_TOKEN", 1)) > 0
+        if self._do_verify:
+            # self.start()
+            arg = GeneratorArg(max_length=1)
+            print(arg)
+            # task = self.to_c_task([888] * (config.max_total_token - 1), arg)
+            # self.generate_c(task, arg)
+            # self._do_verify = False
+            print("Done Verify max_token")
 
     def to_c_task(input_tokens: List[int], arg: GeneratorArg, stream=0) -> llm_nodes.SearchTask:
+        print("__________________-------")
         return llm_nodes.SearchTask(input_tokens,
                                     arg.beam_size,
                                     arg.max_length,
