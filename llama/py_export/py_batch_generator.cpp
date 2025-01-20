@@ -15,6 +15,10 @@ public:
     generator::SearchResults results;
     bool bee_answer_multi_span;
 
+    // static std::shared_ptr<PySearchTask> create(py::object input_tokens_or_str) {
+    //     std::cout << ">>>>>>>>>>>>>>> PySearchTask create" << std::endl;
+    // }
+
     static std::shared_ptr<PySearchTask> create(py::object input_tokens_or_str,
                                                 int beam_size,
                                                 int max_length,
@@ -31,10 +35,8 @@ public:
                                                 int top_logprobs,
                                                 int stream) {
         SearchTask t = std::make_shared<SearchTask_>();
-        t->input_tokens = py::cast<std::vector<int32_t>>(input_tokens_or_str);
-        std::cout << "beam_size: " << beam_size << std::endl;
-        std::cout << "t->beam_size: " << t->beam_size << std::endl;
-        // t->beam_size = beam_size;
+        // t->input_tokens = py::cast<std::vector<int32_t>>(input_tokens_or_str);
+        t->beam_size = beam_size;
         t->max_length = max_length;
         t->presence_penalty = presence_penalty;
         t->repetition_penalty = repetition_penalty;
@@ -64,7 +66,7 @@ public:
 
     py::object get_result(float timeout);
 
-}; // end of class PySearchTask
+}; // namespace bind
 
 // class __attribute__ ((visibility("hidden"))) PyBatchGenerator {
 class PyBatchGenerator {

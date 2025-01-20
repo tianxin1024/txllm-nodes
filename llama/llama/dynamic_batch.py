@@ -164,8 +164,9 @@ class DynamicBatchGenerator:
             # self._do_verify = False
             print("Done Verify max_token")
 
+    @staticmethod
     def to_c_task(input_tokens: List[int], arg: GeneratorArg, stream=0) -> llm_nodes.SearchTask:
-        print("__________________-------")
+        # return llm_nodes.SearchTask(input_tokens)
         return llm_nodes.SearchTask(input_tokens,
                                     arg.beam_size,
                                     arg.max_length,
@@ -181,6 +182,7 @@ class DynamicBatchGenerator:
                                     bool(arg.bee_answer_multi_span),
                                     arg.top_logprobs,
                                     int(stream))
+
 
     def _encode(self, data: Union[str, List[dict]]) -> List[int]:
         if (isinstance(data, list) and isinstance(data[0], dict) and hasattr(self._tokenizer, "apply_chat_template")):
@@ -210,9 +212,9 @@ class DynamicBatchGenerator:
             return c_task, ids
         else:
             print("data: ", data)
+            print("arg: ", arg)
             input_tokens = self._encode(data)
             return self.to_c_task(input_tokens, arg), input_tokens
-
 
     def generate(self, 
                  data: Union[str, dict, List[dict]],
