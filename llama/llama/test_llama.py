@@ -42,6 +42,7 @@ def main():
     with DynamicBatchGenerator(batch_config, model) as generator:
         print("....")
         req_result = generator.generate(messages, arg)
+        print("...." * 100)
         print(req_result)
 
 

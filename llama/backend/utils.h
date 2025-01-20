@@ -26,5 +26,11 @@ public:
     explicit TSQueue(int max_size) :
         max_size_(max_size) {
     }
+
+    size_t size() {
+        Lock lock(mutex_);
+        return queue_.size();
+    }
+
 }; // end of class TSQueue
 } // namespace utils

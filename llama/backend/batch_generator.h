@@ -23,15 +23,18 @@ struct SearchTask_ {
     int max_length;
     float presence_penalty;
     float repetition_penalty;
+    float ngram_penalty;
     bool diverse;
     int seed;
     float temperature;
     int num_results;
     float top_p;
     int top_k;
-    int top_topprobs;
+    int top_logprobs;
     int stream{0}; // 0: non stream; 1. single stream result; 2: multiple stream result
     utils::TSQueue<generator::SearchResults> res_queue{INT_MAX};
+    std::function<void(const generator::SearchResults &results)> callback;
+    volatile bool canceled{false};
 
 }; // end of struct SearchTask_
 

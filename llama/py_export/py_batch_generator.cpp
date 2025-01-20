@@ -8,6 +8,62 @@ namespace bind {
 using namespace batch_generator;
 using model::DynBatchConfig;
 
+// class __attribute__ ((visibility("hidden"))) PySearchTask {
+class PySearchTask {
+public:
+    SearchTask task_;
+    generator::SearchResults results;
+    bool bee_answer_multi_span;
+
+    static std::shared_ptr<PySearchTask> create(py::object input_tokens_or_str,
+                                                int beam_size,
+                                                int max_length,
+                                                float presence_penalty,
+                                                float repetition_penalty,
+                                                float ngram_penalty,
+                                                bool diverse,
+                                                int seed,
+                                                float temperature,
+                                                int num_results,
+                                                float top_p,
+                                                int top_k,
+                                                bool bee_answer_multi_span,
+                                                int top_logprobs,
+                                                int stream) {
+        SearchTask t = std::make_shared<SearchTask_>();
+        t->input_tokens = py::cast<std::vector<int32_t>>(input_tokens_or_str);
+        t->beam_size = beam_size;
+        t->max_length = max_length;
+        t->presence_penalty = presence_penalty;
+        t->repetition_penalty = repetition_penalty;
+        t->ngram_penalty = ngram_penalty;
+        t->diverse = diverse;
+        t->seed = seed;
+        t->temperature = temperature;
+        t->num_results = num_results;
+        t->top_p = top_p;
+        t->top_k = top_k;
+        t->top_logprobs = top_logprobs;
+        t->stream = stream;
+        t->callback = [=](auto &t) {};
+        std::shared_ptr<PySearchTask> py_task = std::make_shared<PySearchTask>();
+        py_task->task_ = t;
+        py_task->bee_answer_multi_span = bee_answer_multi_span;
+        return py_task;
+    }
+
+    ~PySearchTask() {
+        task_->canceled = true;
+    }
+
+    bool has_result() {
+        return task_->res_queue.size() > 0;
+    }
+
+    py::object get_result(float timeout);
+
+}; // end of class PySearchTask
+
 // class __attribute__ ((visibility("hidden"))) PyBatchGenerator {
 class PyBatchGenerator {
 public:
@@ -33,11 +89,27 @@ public:
         py::gil_scoped_release release;
         searcher_->run();
     }
-
     void stop() {
         searcher_->stop();
     }
 }; // end of class PyBatchGenerator
+
+// for Stream API
+// update_flag: 1: Incremental; 2: update all; 3: final result
+// return py::tuple(update_flag, out_tokens, score)
+// if update_flag==3 (final), then
+//   out_tokens is list. i.e. len(out_tokens) = num_results
+// else
+//  out_tokens: CpmBee: str; LLaMA: list[int]
+py::object PySearchTask::get_result(float timeout) {
+    generator::SearchResults results;
+    {
+        py::gil_scoped_release release;
+        // results = std::move(pop_res(timeout));
+    }
+    std::cout << "PySearchTask get_result" << std::endl;
+    // TODO ...
+}
 
 void define_dynamic_batch(py::module_ &handle) {
     py::class_<DynBatchConfig>(handle, "DynBatchConfig")
@@ -59,6 +131,11 @@ void define_dynamic_batch(py::module_ &handle) {
         .def_readwrite("flash_attention", &DynBatchConfig::flash_attention)
         .def_readwrite("enable_prompt_caching", &DynBatchConfig::enable_prompt_caching)
         .def(py::init());
+
+    py::class_<PySearchTask, std::shared_ptr<PySearchTask>>(handle, "SearchTask")
+        .def("has_result", &PySearchTask::has_result)
+        .def("get_result", &PySearchTask::get_result)
+        .def(py::init(&PySearchTask::create));
 
     py::class_<PyBatchGenerator, std::shared_ptr<PyBatchGenerator>>(handle, "BatchGenerator")
         .def(py::init(&PyBatchGenerator::create));

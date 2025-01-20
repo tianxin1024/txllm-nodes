@@ -156,9 +156,71 @@ class DynamicBatchGenerator:
         self._thread = None
         self._do_verify = int(os.environ.get("VERIFY_MAX_TOKEN", 1)) > 0
 
+    def to_c_task(input_tokens: List[int], arg: GeneratorArg, stream=0) -> llm_nodes.SearchTask:
+        return llm_nodes.SearchTask(input_tokens,
+                                    arg.beam_size,
+                                    arg.max_length,
+                                    arg.presence_penalty,
+                                    arg.repetition_penalty,
+                                    arg.ngram_penalty,
+                                    arg.seed is not None and arg.seed != 0,
+                                    arg.seed or 0,
+                                    arg.temperature,
+                                    arg.num_results,
+                                    arg.top_p,
+                                    arg.top_k,
+                                    bool(arg.bee_answer_multi_span),
+                                    arg.top_logprobs,
+                                    int(stream))
+
+    def _encode(self, data: Union[str, List[dict]]) -> List[int]:
+        if (isinstance(data, list) and isinstance(data[0], dict) and hasattr(self._tokenizer, "apply_chat_template")):
+            # https://platform.openai.com/docs/api-reference/chat/create#chat-create-messages
+            prompt = self._tokenizer.apply_chat_template(data, tokenize=False, add_generation_prompt=True)
+            print("prompt: ", prompt)
+            input_tokens = self._tokenizer.encode(prompt, add_special_tokens=False)
+            print("input_tokens: ", input_tokens)
+        else:
+            input_tokens = self._tokenizer.encode(data)
+        return input_tokens
+
+
+    def _process_inputs(self, data: Union[str, dict, List[dict]], arg: GeneratorArg, stream=0):
+        t = self.model.process_inputs(data)
+        if t is not None:
+            # multi-modal model, feed extra fields
+            ids, position_ids, embeddings, pos_delta = t
+            c_task = self.to_c_task(ids, arg, stream=stream)
+            if position_ids is not None:
+                c_task.set_position_ids(position_ids)
+            if embeddings is not None:
+                assert 0 == int(os.environ.get("CHUNKED_PREFILL", 0)), "Feed embeddings with chunking is not supported."
+                c_task.set_input_embeddings(embeddings)
+            if pos_delta is not None:
+                c_task.set_position_delta(pos_delta)
+            return c_task, ids
+        else:
+            print("data: ", data)
+            input_tokens = self._encode(data)
+            return self.to_c_task(input_tokens, arg), input_tokens
+
+
+    def generate(self, 
+                 data: Union[str, dict, List[dict]],
+                 arg: GeneratorArg = GeneratorArg(),
+                 block: bool = True,
+                 prepend_input: bool = False,
+                 timeout: float = 0):
+        print("generate >>>>>>>>>>>>>>>>>>>>>>>>>>>.")
+        c_task, _ = self._process_inputs(data, arg)
+        # print(c_task)
+
+        # req_result = self.generate_c(c_task, arg, block, timeout=timeout)
+
     def start(self):
         def run_wrapper():
             try:
+                print(">>>  run -------------------------------")
                 self._c_generator.run()
             except Exception as e:
                 if self._do_verify:
@@ -178,7 +240,7 @@ class DynamicBatchGenerator:
             self._thread.join()
 
     def __enter__(self):
-        self.start()
+        # self.start()
         return self
 
     def __exit__(self, *args):
