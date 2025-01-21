@@ -121,6 +121,57 @@ class GeneratorArg:
         obj.max_length = new_len
         return obj
 
+class StreamResultType:
+    Incomplete = 1
+    AllCurrent = 2
+    Final      = 3
+
+class GenerativeOutput:
+    def __init__(self, token_ids, score, time_elapsed, first_token_delay=0, top_logprobs=None):
+        self.token_ids: List[int] = token_ids
+        self.score: float = score
+        self.time_elapsed: float = time_elapsed / 1000
+        self.first_token_delay: float = first_token_delay / 1000
+        self.top_logprobs = top_logprobs
+        self.text = ''
+
+def _convert_output(t) -> GenerativeOutput:
+    """
+     @:param t from c++ implementation: py_batch_generator.cpp convert_outputs_to_py()
+    """
+    if isinstance(t, tuple):
+        return GenerativeOutput(t[0], t[1], t[2], t[3], t[4])
+    else:
+        raise RuntimeError("Unexpected type")
+
+class RequestResult:
+    def __init__(self, prompt, outputs, input_tokens_num):
+        self.prompt = prompt
+        self.outputs : List[GenerativeOutput] = outputs
+        self.input_tokens_num = input_tokens_num
+
+    @staticmethod
+    def from_cpp_result(prompt, c_outputs, input_tokens_num):
+        """
+        @:param t from c++ implementation: py_batch_generator.cpp convert_outputs_to_py()
+        """
+        assert isinstance(c_outputs, list), "c_outputs should be a list"
+        outputs = [_convert_output(x) for x in c_outputs]
+        return RequestResult(prompt, outputs, input_tokens_num)
+
+    @staticmethod
+    def from_cpp_stream_result(prompt, t, input_tokens_num):
+        """
+         @:param t from c++ implementation: py_batch_generator.cpp get_result()
+        """
+        assert isinstance(t, tuple), "cpp stream result should be a tuple"
+        update_flag, _, _, final_results = t
+        assert update_flag == StreamResultType.Final, "not a final result"
+        assert isinstance(final_results, list), "final_results should be a list"
+        outputs = [_convert_output(x) for x in final_results]
+        return RequestResult(prompt, outputs, input_tokens_num)
+
+
 class DynamicBatchGenerator:
     def __init__(self, config: DynamicBatchConfig, model):
         self.config = config
@@ -156,7 +207,7 @@ class DynamicBatchGenerator:
         self._thread = None
         self._do_verify = int(os.environ.get("VERIFY_MAX_TOKEN", 1)) > 0
         if self._do_verify:
-            # self.start()
+            self.start()
             arg = GeneratorArg(max_length=1)
             print(arg)
             # task = self.to_c_task([888] * (config.max_total_token - 1), arg)
@@ -210,8 +261,6 @@ class DynamicBatchGenerator:
                 c_task.set_position_delta(pos_delta)
             return c_task, ids
         else:
-            print("data: ", data)
-            print("arg: ", arg)
             input_tokens = self._encode(data)
             return self.to_c_task(input_tokens, arg), input_tokens
 
@@ -223,9 +272,30 @@ class DynamicBatchGenerator:
                  timeout: float = 0):
         print("generate >>>>>>>>>>>>>>>>>>>>>>>>>>>.")
         c_task, _ = self._process_inputs(data, arg)
-        # print(c_task)
+        print(c_task)
 
-        # req_result = self.generate_c(c_task, arg, block, timeout=timeout)
+        req_result = self.generate_c(c_task, arg, block, timeout=timeout)
+
+
+    def generate_c(self, 
+                   c_task: llm_nodes.SearchTask,
+                   arg: GeneratorArg,
+                   block: bool = True,
+                   timeout: float = 0,) -> RequestResult:
+        if self._thread is None:
+            raise RuntimeError("Not started")
+
+        if arg.num_results > self.config.max_beam_size:
+            raise ValueError(f"arg.num_results {arg.num_results} is too big.")
+
+        self.check_queue_busy()
+        if not self._c_generator.submit(c_task, block):
+            raise RuntimeError("Generator is busy")
+
+        c_result = c_task.get_result(timeout)
+
+        return RequestResult.from_cpp_stream_result(None, c_result, c_task.input_tokens_num())
+
 
     def start(self):
         def run_wrapper():

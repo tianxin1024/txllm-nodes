@@ -7,6 +7,9 @@
 namespace model {
 using namespace bmengine;
 
+class ModelBase;
+class DynBatchConfig;
+
 /*
 *  Extend Context to hold more info for LLM model inference
 */
@@ -21,6 +24,8 @@ private:
     std::vector<int> layer_devices;
     std::shared_ptr<BufferContext> buf_ctx_;
 
+    bool latent_cache_{false};
+
 public:
     ModelContext(core::Context &&ctx,
                  const ModelBase &md,
@@ -29,6 +34,12 @@ public:
                  bool BSHD = false);
     ~ModelContext() override;
     ModelContext(ModelContext &&) = default;
+
+    static ModelContext create(core::Engine &engine,
+                               const ModelBase &md,
+                               const DynBatchConfig &config,
+                               int dev,
+                               bool parallel);
 
 }; // end of class ModelContext
 

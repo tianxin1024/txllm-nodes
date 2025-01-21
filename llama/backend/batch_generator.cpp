@@ -1,4 +1,5 @@
 #include "backend/batch_generator.h"
+#include "backend/model_context.h"
 
 namespace batch_generator {
 
@@ -56,6 +57,27 @@ void BatchGenerator::stop() {
             std::cerr << "Search thread can not stop!!!\n";
         }
         thread_.reset();
+    }
+}
+
+void BatchGenerator::run() {
+    {
+        pthread_setname_np(pthread_self(), "DynBatch");
+        // context must create and destroy in the same thread
+        model::ModelContext ctx = model::ModelContext::create(
+            *engine_, *model_, config, -1, 0);
+        // if (llama_model()) {
+        if (false) {
+            // SearcherImplV1<int, int>(ctx, config, this).batch_search();
+        } else if (!model_) {
+            throw std::invalid_argument("No model");
+        } else {
+            throw std::invalid_argument(std::string("Unknown model:") + model_->layer_type());
+        }
+        Lock lock(mutex_);
+        stopped_ = true;
+        stop_cond_.notify_one();
+        std::cerr << "Exit BeamSearcher::run()" << std::endl;
     }
 }
 
