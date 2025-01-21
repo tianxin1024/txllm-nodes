@@ -51,7 +51,6 @@ core::Tensor concat_dim0(const core::Context &ctx, std::vector<core::Tensor *> t
     }
     ret = ret.view(shape);
     if (!quant_scales.empty()) {
-        std::cout << "oooooooooooooooooooooooooooooooo" << std::endl;
         core::Tensor fuse_scale = concat_dim0(ctx, quant_scales, stack);
         // int8_op::set_quant_scale(ret, fuse_scale);
     }

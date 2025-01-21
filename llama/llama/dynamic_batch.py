@@ -166,7 +166,6 @@ class DynamicBatchGenerator:
 
     @staticmethod
     def to_c_task(input_tokens: List[int], arg: GeneratorArg, stream=0) -> llm_nodes.SearchTask:
-        # return llm_nodes.SearchTask(input_tokens)
         return llm_nodes.SearchTask(input_tokens,
                                     arg.beam_size,
                                     arg.max_length,

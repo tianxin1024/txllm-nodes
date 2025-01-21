@@ -1,4 +1,6 @@
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+#include <pybind11/numpy.h>
 #include "py_export/bind.h"
 #include "backend/batch_generator.h"
 #include "py_export/py_model_base.h"
@@ -35,7 +37,7 @@ public:
                                                 int top_logprobs,
                                                 int stream) {
         SearchTask t = std::make_shared<SearchTask_>();
-        // t->input_tokens = py::cast<std::vector<int32_t>>(input_tokens_or_str);
+        t->input_tokens = py::cast<std::vector<int>>(input_tokens_or_str);
         t->beam_size = beam_size;
         t->max_length = max_length;
         t->presence_penalty = presence_penalty;
