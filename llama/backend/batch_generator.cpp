@@ -28,16 +28,15 @@ void TaskQueue::stop() {
 }
 
 BatchGenerator::BatchGenerator(DynBatchConfig config,
-                               model::ModelBase *par_model,
+                               std::vector<model::ModelBase *> par_models,
                                bmengine::core::Engine *engine) :
     config(config),
-    par_model_(par_model),
+    par_models_(par_models),
     engine_(engine),
     queue_(config.task_queue_size) {
     BM_ASSERT(config.max_total_token % 64 == 0, "max_total_token should align to 64");
-    // BM_ASSERT(!par_model_.empty(), "No model");
-    // BM_ASSERT(par_model_ == nullptr, "No model");
-    model_ = par_model_;
+    BM_ASSERT(!par_models_.empty(), "No model");
+    model_ = par_models_[0];
 }
 
 BatchGenerator::~BatchGenerator() {
@@ -236,10 +235,10 @@ public:
         }
 
         // set peer context
-        device_threads.push_back(new TaskThreadPool(1, 0));
+        // device_threads.push_back(new TaskThreadPool(1, 0));
 
-        peer_ctx.resize(device_threads.size() + 1);
-        peer_ctx[0] = &ctx;
+        // peer_ctx.resize(device_threads.size() + 1);
+        // peer_ctx[0] = &ctx;
     }
 
 }; // end of class SearcherImplV1
@@ -251,7 +250,7 @@ void BatchGenerator::run() {
         model::ModelContext ctx = model::ModelContext::create(
             *engine_, *model_, config, -1, 0);
         if (llama_model()) {
-            SearcherImplV1<int, int>(ctx, config, this).batch_search();
+            // SearcherImplV1<int, int>(ctx, config, this).batch_search();
         } else if (!model_) {
             throw std::invalid_argument("No model");
         } else {

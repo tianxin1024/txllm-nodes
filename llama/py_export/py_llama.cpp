@@ -18,8 +18,7 @@ class PyLLaMA : public PyModelBase {
 private:
     EnginePtr engine_;
     model::ModelConfig model_config_;
-    // std::vector<model::ModelBase *> models_;
-    model::ModelBase *model_;
+    std::vector<model::ModelBase *> models_;
 
 public:
     PyLLaMA(EnginePtr engine,
@@ -32,26 +31,27 @@ public:
         if (!parallel && engine->num_gpus() > 1) {
             throw std::runtime_error("WARNING: Use parallel=false with multiple GPU !!!");
         }
-        // models_.resize(engine->world_size());
-        auto ctx = engine_->create_context({0});
-        bmengine::core::WithDevice device(ctx, 0);
-        model_ = std::move(new model::LLaMA(ctx, model_config, quant_config, parallel));
-        // engine->device_foreach([this, &model_config, quant_config, parallel](int i) {
-        //     auto ctx = engine_->create_context_rank(i);
-        //     auto with_device = ctx.with_device(0);
-        //     models_[i] = new model::LLaMA(ctx, model_config, quant_config, parallel);
-        // });
+        models_.resize(engine->world_size());
+        engine->device_foreach([this, &model_config, quant_config, parallel](int i) {
+            auto ctx = engine_->create_context_rank(i);
+            auto with_device = ctx.with_device(0);
+            models_[i] = new model::LLaMA(ctx, model_config, quant_config, parallel);
+        });
     }
 
     ~PyLLaMA() {
-        model_ = nullptr;
-        // if (engine_ && !models_.empty()) {
-        //     engine_->device_foreach([this](int i) {
-        //         delete models_[i];
-        //     });
-        //     models_.clear();
-        // }
+        if (engine_ && !models_.empty()) {
+            engine_->device_foreach([this](int i) {
+                delete models_[i];
+            });
+            models_.clear();
+        }
     }
+
+    PyLLaMA(const PyLLaMA &other) = default;
+    PyLLaMA(PyLLaMA &&other) = default;
+    PyLLaMA &operator=(const PyLLaMA &other) = default;
+    PyLLaMA &operator=(PyLLaMA &&other) = default;
 
     static PyLLaMA create(EnginePtr engine,
                           model::ModelConfig &model_config,
@@ -64,23 +64,19 @@ public:
         return engine_.get();
     }
 
-    virtual model::ModelBase *par_models() {
-        return model_;
+    virtual std::vector<model::ModelBase *> par_models() {
+        return models_;
     }
 
     void load_state_dict_1(const std::map<std::string, py::array> &state_dict) {
         auto tensor_dict = bind::numpy_to_tensor(state_dict);
-
-        auto ctx = engine_->create_context({0});
-        bmengine::core::WithDevice device(ctx, 0);
-        model_->load_state_dict(ctx, tensor_dict, prefix);
-        // engine_->device_foreach([this, &tensor_dict](int i) {
-        //     auto ctx = engine_->create_context_rank(i);
-        //     auto with_device = ctx.with_device(0);
-        //     // load params recursively
-        //     model_->load_state_dict(ctx, tensor_dict, prefix);
-        // });
-        // on_load();
+        engine_->device_foreach([this, &tensor_dict](int i) {
+            auto ctx = engine_->create_context_rank(i);
+            auto with_device = ctx.with_device(0);
+            // load params recursively
+            models_[i]->load_state_dict(ctx, tensor_dict, prefix);
+        });
+        on_load();
     }
 
 }; // end of class PyLLaMA

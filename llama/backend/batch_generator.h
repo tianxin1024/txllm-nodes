@@ -61,7 +61,7 @@ class BatchGenerator {
     DynBatchConfig config;
 
     ModelBase *model_;
-    model::ModelBase *par_model_;
+    std::vector<model::ModelBase *> par_models_;
     bmengine::core::Engine *engine_;
 
     TaskQueue queue_;
@@ -76,7 +76,7 @@ class BatchGenerator {
 
 public:
     BatchGenerator(DynBatchConfig config,
-                   model::ModelBase *par_models,
+                   std::vector<model::ModelBase *> par_models,
                    bmengine::core::Engine *engine);
     ~BatchGenerator();
 
