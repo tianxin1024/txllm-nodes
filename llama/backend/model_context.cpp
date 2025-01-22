@@ -22,6 +22,16 @@ ModelContext::ModelContext(core::Context &&ctx,
     latent_cache_ = cfg.kv_lora_rank > 0 && utils::get_int_env("LATENT_CACHE", 0) == 1;
 }
 
+ModelContext::~ModelContext() {
+    std::cout << "debug: " << debug() << std::endl;
+    if (debug() >= 1) {
+        print_memory_summary();
+        std::cerr << "ModelContext accumulated"
+                  << " used_memory " << (used_memory() / 1000) << "KBytes"
+                  << " peak_memory " << (peak_memory() / 1000) << "KBytes" << std::endl;
+    }
+}
+
 // for batch_generator
 ModelContext ModelContext::create(core::Engine &engine,
                                   const ModelBase &md,
@@ -29,6 +39,7 @@ ModelContext ModelContext::create(core::Engine &engine,
                                   int dev,
                                   bool parallel) {
     std::vector<int> devices(dev == -1 ? engine.num_gpus() : 1);
+    std::cout << "ModelContext create " << std::endl;
     if (dev == -1) {
         std::iota(devices.begin(), devices.end(), 0);
     } else {

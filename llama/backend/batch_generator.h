@@ -10,6 +10,7 @@
 #include "backend/model.h"
 #include "backend/generator.h"
 #include "backend/utils.h"
+#include "backend/llama.h"
 
 namespace batch_generator {
 
@@ -78,6 +79,10 @@ public:
                    model::ModelBase *par_models,
                    bmengine::core::Engine *engine);
     ~BatchGenerator();
+
+    model::LLaMALike *llama_model() {
+        return dynamic_cast<model::LLaMALike *>(model_);
+    }
 
     void start();
     void stop();

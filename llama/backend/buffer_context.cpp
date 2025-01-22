@@ -18,13 +18,10 @@ TransformerBufferContext::TransformerBufferContext(
     //     batch_size, m.num_layers, num_kv_heads, m.dim_head, m.dtype, parallel, BSHD);
 }
 
+TransformerBufferContext::~TransformerBufferContext() {
+}
+
 void TransformerBufferContext::set_layer_devices(const std::vector<int> &layer_devices) {
 }
-// TransformerBufferContext::TransformerBufferContext(const ModelBase &md,
-//                                                    int batch_size,
-//                                                    bool parallel,
-//                                                    int world_size,
-//                                                    bool BSHD) {
-// }
 
 } // namespace model

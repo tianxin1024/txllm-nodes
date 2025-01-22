@@ -77,6 +77,7 @@ public:
 
     static std::shared_ptr<PyBatchGenerator> create(DynBatchConfig &config, PyModelBase *py_model) {
         // std::cerr << "py_model->model()->layer_type() " << py_model->model()->layer_type() << "\n";
+        std::cout << ">>>>>>>>>>>>>>>> PyBatchGenerator create " << std::endl;
         std::shared_ptr<PyBatchGenerator> self = std::make_shared<PyBatchGenerator>();
         self->searcher_ = std::make_shared<BatchGenerator>(
             config, py_model->par_models(), py_model->engine());
@@ -95,6 +96,7 @@ public:
         py::gil_scoped_release release;
         searcher_->run();
     }
+
     void stop() {
         searcher_->stop();
     }
@@ -144,7 +146,8 @@ void define_dynamic_batch(py::module_ &handle) {
         .def(py::init(&PySearchTask::create));
 
     py::class_<PyBatchGenerator, std::shared_ptr<PyBatchGenerator>>(handle, "BatchGenerator")
-        .def(py::init(&PyBatchGenerator::create));
+        .def(py::init(&PyBatchGenerator::create))
+        .def("run", &PyBatchGenerator::run);
 }
 
 } // namespace bind
