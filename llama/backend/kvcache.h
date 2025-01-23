@@ -36,6 +36,24 @@ public:
             bool parallel,
             bool BSHD);
 
+    bool is_BSHD() const {
+        return BSHD;
+    }
+
 }; // end of class KVCache
+
+struct KVCacheConfig {
+    int num_layers;
+    int num_heads;
+    int dim_head;
+    core::DataType dtype;
+    bool BSHD;
+    std::shared_ptr<core::DataType> scale_dtype; // optional
+    std::vector<int> layer_devices;
+
+    bool is_quant() const {
+        return scale_dtype.get();
+    }
+}; // end of struct KVCacheConfig
 
 } // namespace kvcache

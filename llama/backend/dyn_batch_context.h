@@ -4,6 +4,20 @@
 
 namespace model {
 
+using bmengine::core::Tensor;
+using std::vector;
+
+static inline bool is_power_of_2(int x) {
+    return (x > 0) && !(x & (x - 1));
+}
+
+#define CHECK_IS_POWER_OF_2(x)                                                              \
+    do {                                                                                    \
+        if (!is_power_of_2(x)) {                                                            \
+            throw std::invalid_argument(#x "=" + std::to_string(x) + " is not power of 2"); \
+        }                                                                                   \
+    } while (0)
+
 struct DynBatchConfig {
     int max_batch{20};
     int max_beam_size{1 * 8}; // set to n * 8 for best preformance
@@ -25,5 +39,59 @@ struct DynBatchConfig {
     bool enable_prompt_caching{false};
     bool flash_attention{false};
 };
+
+struct RopeCache {
+    Tensor cos;
+    Tensor sin;
+    void clear() {
+        cos = Tensor();
+        sin = Tensor();
+    }
+};
+
+struct DynBatchContext {
+    RopeCache rope_cache;
+    // search
+    Tensor s_toknel;
+    Tensor s_sub;
+    Tensor s_placement;
+    Tensor s_position;
+    Tensor s_mask;
+    vector<Tensor> s_position_buckets; // for CPMBee ragged buffer
+    vector<Tensor> s_position_biases;  // for CPMBee ragged buffer
+    vector<int> sv_len_buf;            // for ragged buffer
+    Tensor s_leb_buf;                  // for ragged buffer
+    // encode
+    Tensor e_token;
+    Tensor e_sub;
+    Tensor e_placement;
+    Tensor e_position;
+    Tensor e_mask;
+    vector<Tensor> e_position_buckets; // for CPMBee
+    vector<Tensor> e_position_biases;  // for CPMBee
+
+    vector<int> ev_batch;
+    Tensor e_batch;
+    vector<int> ev_input_len;
+    vector<int> full_input_len;
+    Tensor e_input_len;
+    vector<int> ev_len_buf;
+
+    int debug_batch{-1};
+
+    std::vector<void *> host_position_bias_addresses;
+    Tensor position_bias_addresses;
+
+    Tensor cu_q_seqlens; // for FlashDecoding
+    Tensor cu_k_seqlens; // for FlashDecoding
+    size_t total_k{0};
+    int max_q_seqlen{0};
+    int max_k_seqlen{0};
+
+    std::shared_ptr<Tensor> unquant_key_buf;
+    std::shared_ptr<Tensor> unquant_val_buf;
+    int input_len_no_split;
+
+}; // end of struct DynBatchContext
 
 } // namespace model

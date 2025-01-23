@@ -3,6 +3,10 @@
 #include "backend/model_context.h"
 #include "backend/beam_result_manager.h"
 #include "backend/beam_buffer_manager.h"
+#include "backend/dyn_batch_context.h"
+
+#include <bmengine/core/thread_pool.h>
+#include "private/allocator.h"
 #include <unistd.h>
 #include <sys/syscall.h>
 
@@ -10,6 +14,7 @@
 
 namespace batch_generator {
 
+using bmengine::core::TaskThreadPool;
 using generator::BeamHypothesis;
 using generator::SearchResult;
 using generator::SearchResults;
@@ -34,6 +39,7 @@ BatchGenerator::BatchGenerator(DynBatchConfig config,
     par_models_(par_models),
     engine_(engine),
     queue_(config.task_queue_size) {
+    // CHECK_IS_POWER_OF_2(config.max_beam_size);
     BM_ASSERT(config.max_total_token % 64 == 0, "max_total_token should align to 64");
     BM_ASSERT(!par_models_.empty(), "No model");
     model_ = par_models_[0];
@@ -154,6 +160,12 @@ struct SwapBuf {
     }
 }; // end of struct SwapBuf
 
+static size_t get_kv_buf_bytes(const ModelBase &m, int len, int rep = 1) {
+    int dim_kv = m.num_kv_heads * m.dim_head;
+    int buf_size_pt = 2 * m.num_layers * dim_kv;
+    return size_t(len) * sizeof(half) * buf_size_pt;
+}
+
 template <typename TokenT, typename ResultT>
 class SearcherImplV1 {
     typedef beam_utility::BeamBufferInfo<TokenT> BeamBufferInfo;
@@ -191,7 +203,10 @@ class SearcherImplV1 {
     bool enabled_chunk_prefill;
     len_t chunk_size;
 
+    std::vector<TaskThreadPool *> device_threads;
+
     std::vector<std::vector<SwapBuf>> swapped_buffers;
+    len_t kv_buf_btypes;
 
 public:
     NO_GCC_OPT
@@ -218,7 +233,7 @@ public:
         topk_all.set_seed(config.seed != 0, config.seed);
         debug_batch_idx = utils::get_int_env("DEBUG_BATCH", -1);
         bool need_dequant_weight = utils::get_int_env("DEED_DEQUANT_WEIGHT", 0) > 0;
-        auto dev = ctx.with_device(0);
+        // auto dev = ctx.with_device(0);
         dual_stream = utils::get_int_env("DUAL_STREAM", 0) && ctx.get_compute_capability() > 80;
         bool host_reduce = utils::get_int_env("HOST_REDUCE", 0) > 0;
         enabled_chunk_prefill = utils::get_int_env("CHUNKED_PREFILL", 0) > 0;
@@ -235,22 +250,113 @@ public:
         }
 
         // set peer context
-        // device_threads.push_back(new TaskThreadPool(1, 0));
+        for (int i = 1; i < searcher->par_models_.size(); ++i) {
+            device_threads.push_back(new TaskThreadPool(1, i));
+        }
 
-        // peer_ctx.resize(device_threads.size() + 1);
-        // peer_ctx[0] = &ctx;
+        peer_ctx.resize(device_threads.size() + 1);
+        peer_ctx[0] = &ctx;
+        peer_run([this, searcher](int i) {
+            if (i == 0) return;
+            std::string name = "DynBatch-TP" + std::to_string(i);
+            if (debug_level > 1)
+                std::cout << "LWP " << _get_tid() << " " << name << std::endl;
+            pthread_setname_np(pthread_self(), name.c_str());
+            peer_ctx[i] = new ModelContext(
+                ModelContext::create(*searcher->engine_, *searcher->par_models_[i], this->config, i, true));
+        },
+                 true, false);
+
+        // set peer info for reduce sum
+        if (config.nccl == -1) {
+            config.nccl = 1;
+            if (debug_level) std::cout << "Auto set config.nccl to " << config.nccl << std::endl;
+        }
+        std::shared_ptr<model::HostAllReducer> host_reducer;
+        if (host_reduce && searcher->par_models_.size() > 1) {
+            host_reducer.reset(this->ctx.create_host_reducer());
+            auto fn = [&](int i) { peer_ctx[i]->set_host_reducer(host_reducer); };
+            peer_run(fn, true);
+        }
+        if (!config.nccl) {
+            // TODO ...
+        }
+
+        // calc max_buf_token_num
+        auto &model = *searcher->model_;
+        std::cout << "ctx addr: " << &ctx << std::endl;
+        // auto allocator = ctx.get_allocator();
+        // size_t free_mem = allocator->get_free_memory();
+        std::cout << ">>>>>>>>>>>>>>>>>: need_dequant_weight : " << need_dequant_weight << std::endl;
+        kv_buf_btypes = get_kv_buf_bytes(model, 1) / ctx.world_size();
+        // if (ctx.rag_buffer()->is_cache_quant()) {
+        //     kv_buf_bytes /= 2;
+        // }
+        // if (ctx.latent_cache() && ctx.cfg.kv_lora_rank > 0) {
+        //     kv_buf_bytes = model.num_layers * (ctx.cfg.kv_lora_rank + ctx.cfg.qk_rope_head_dim) * sizeof(half);
+        // }
+        size_t reserve_mem = size_t(config.reserved_work_mem_mb) * 1024U * 1024U;
     }
 
+    ~SearcherImplV1() {
+        try {
+            peer_run([this](int i) {
+                if (i > 0)
+                    delete peer_ctx[i];
+            },
+                     true, false);
+        } catch (const std::exception &e) {
+            std::cerr << "Stop error: " << e.what() << std::endl;
+        }
+
+        for (auto p : device_threads) {
+            delete p;
+        }
+        device_threads.clear();
+    }
+
+    void peer_wait() {
+        for (auto &device_thread : device_threads) {
+            device_thread->wait();
+        }
+    }
+
+    void peer_run(std::function<void(int)> fn, bool wait = false, bool with_dev = true) {
+        for (int i = 1; i <= device_threads.size(); ++i) {
+            if (with_dev) {
+                auto fn1 = [=]() {
+                    auto dev = peer_ctx[i]->with_device(0);
+                    fn(i);
+                };
+                device_threads[i - 1]->run(fn1);
+            } else {
+                device_threads[i - 1]->run(std::bind(fn, i));
+            }
+        }
+        fn(0);
+        if (wait) {
+            peer_wait();
+        }
+    }
+
+    void batch_search();
+
 }; // end of class SearcherImplV1
+
+template <typename TokenT, typename ResultT>
+void SearcherImplV1<TokenT, ResultT>::batch_search() {
+    int active_count = 0;
+    exit(0);
+}
 
 void BatchGenerator::run() {
     {
         pthread_setname_np(pthread_self(), "DynBatch");
         // context must create and destroy in the same thread
         model::ModelContext ctx = model::ModelContext::create(
-            *engine_, *model_, config, -1, 0);
+            *engine_, *model_, config, par_models_.empty() ? -1 : 0, !par_models_.empty());
         if (llama_model()) {
-            // SearcherImplV1<int, int>(ctx, config, this).batch_search();
+            SearcherImplV1<int, int>(ctx, config, this).batch_search();
         } else if (!model_) {
             throw std::invalid_argument("No model");
         } else {

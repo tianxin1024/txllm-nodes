@@ -31,35 +31,35 @@ namespace core {
 
 using std::string;
 
-static inline int get_int_env(const char* name, int def_val = 0) {
-    char* env_str = std::getenv(name);
+static inline int get_int_env(const char *name, int def_val = 0) {
+    char *env_str = std::getenv(name);
     return env_str != nullptr ? std::atoi(env_str) : def_val;
 }
 
-ContextImpl::ContextImpl(EngineImpl* engine, const std::vector<int>& devices, int rank, bool aux)
-    : engine(engine),
-      active_device(-1),
-      devices(devices),
-      rank_(rank),
-      used_memory(0),
-      peak_memory(0),
-      thread_id(std::this_thread::get_id()),
-      debug(0),
-      tensor_id(0L),
-      aux_(aux) {
+ContextImpl::ContextImpl(EngineImpl *engine, const std::vector<int> &devices, int rank, bool aux) :
+    engine(engine),
+    active_device(-1),
+    devices(devices),
+    rank_(rank),
+    used_memory(0),
+    peak_memory(0),
+    thread_id(std::this_thread::get_id()),
+    debug(0),
+    tensor_id(0L),
+    aux_(aux) {
     tensor_cache.resize(8);
     debug = get_int_env("BM_DEBUG_LEVEL");
 
     for (int dev_id : devices) {
         // DeviceHandles* dev_handle = engine->get_device_handle(dev_id, aux);
-        DeviceHandles* dev_handle = engine->get_device_handle(dev_id);
+        DeviceHandles *dev_handle = engine->get_device_handle(dev_id);
         dev_handles.push_back(dev_handle);
         if (aux) {
             BM_ASSERT(false, "");
-//            auto org_alloc = engine->get_allocator(dev_id);
-//            auto free_mem = org_alloc->get_memory_limit() - org_alloc->used_memory();
-//            auto new_alloc = new MemoryAllocator(*org_alloc, free_mem / 2, dev_handle->stream);
-//            allocators.push_back(new_alloc);
+            //            auto org_alloc = engine->get_allocator(dev_id);
+            //            auto free_mem = org_alloc->get_memory_limit() - org_alloc->used_memory();
+            //            auto new_alloc = new MemoryAllocator(*org_alloc, free_mem / 2, dev_handle->stream);
+            //            allocators.push_back(new_alloc);
         } else {
             allocators.push_back(engine->get_allocator(dev_id));
         }
@@ -67,11 +67,11 @@ ContextImpl::ContextImpl(EngineImpl* engine, const std::vector<int>& devices, in
     pid_ = _get_tid();
 }
 
-static bool starts_with(const char* str, const char* pre) {
+static bool starts_with(const char *str, const char *pre) {
     return strncmp(str, pre, strlen(pre)) == 0;
 }
 
-static bool starts_with(const std::string& str, const char* pre) {
+static bool starts_with(const std::string &str, const char *pre) {
     return str.rfind(pre, 0) == 0;
 }
 
@@ -83,13 +83,13 @@ void ContextImpl::print_events_json() {
     float last_ts = 0;
     bool print_connect = get_int_env("TIMELINE_ARROW", 1) > 0;
     for (int i = 0; i < events.size(); ++i) {
-        auto& ev = events[i];
+        auto &ev = events[i];
         float ts_ms;
         cudaEventElapsedTime(&ts_ms, events[0].ev, ev.ev);
         char buf[1024];
         char ph[2] = {'B', 0};
         char tid[2] = {'0', 0};
-        const char* name = ev.name.c_str();
+        const char *name = ev.name.c_str();
         if (starts_with(ev.name, "End>")) {
             name += 4;
             ph[0] = 'E';
@@ -125,13 +125,13 @@ void ContextImpl::print_events_json() {
     std::cout << R"({"name": "thread_name", "ph": "M", "pid": 0, "tid": 0, "args": {"name" : "Compute Stream"}},)" << endl;
     std::cout << R"({"name": "thread_name", "ph": "M", "pid": 0, "tid": 1, "args": {"name" : "Reduce Stream"}})" << endl;
     std::cout << "]\n";
-    for (auto &ev: events) {
+    for (auto &ev : events) {
         cudaEventDestroy(ev.ev);
     }
     events.clear();
 }
 
-static string format_ev(const string& name, float begin, float taken, float total) {
+static string format_ev(const string &name, float begin, float taken, float total) {
     char buf[202];
     int buf_len = 200;
     buf[200] = 0;
@@ -193,7 +193,7 @@ void ContextImpl::print_events() {
             // try to find corresponding End event
             bool found_end = false;
             size_t max_end = std::min(i + (has_start ? 10000 : 20), events.size());
-            const char* name = has_start ? events[i].name.data() + 6 : events[i].name.data();
+            const char *name = has_start ? events[i].name.data() + 6 : events[i].name.data();
             size_t len_name = strlen(name);
             size_t k = i + 1;
             for (; k < max_end; ++k) {
@@ -234,11 +234,11 @@ void ContextImpl::print_events() {
                 indent += pad;
             }
         }
-        for (auto &ev: events) {
+        for (auto &ev : events) {
             cudaEventDestroy(ev.ev);
         }
         events.clear();
-    } catch (const std::exception& err) { std::cerr << err.what() << std::endl; }
+    } catch (const std::exception &err) { std::cerr << err.what() << std::endl; }
 }
 
 ContextImpl::~ContextImpl() {
@@ -260,9 +260,9 @@ ContextImpl::~ContextImpl() {
     if (!events.empty()) {
         print_events();
     }
-//    for (auto a: cache_allocators) {
-//        delete a;
-//    }
+    //    for (auto a: cache_allocators) {
+    //        delete a;
+    //    }
     while (!cache_allocators.empty()) {
         auto p = cache_allocators.top();
         delete p;
@@ -272,9 +272,9 @@ ContextImpl::~ContextImpl() {
 }
 
 void ContextImpl::check_in_same_thread() {
-//    if (thread_id != std::this_thread::get_id()) {
-//        std::cerr << "Context expPid=" << pid_ << ", real pid=" << _get_tid() << "\n";
-//    }
+    if (thread_id != std::this_thread::get_id()) {
+        std::cerr << "Context expPid=" << pid_ << ", real pid=" << _get_tid() << "\n";
+    }
     BM_ASSERT(thread_id == std::this_thread::get_id(), "Use context in different thread");
 }
 
@@ -336,11 +336,11 @@ void ContextImpl::pop_device() {
         }
     }
 }
-DeviceHandles* ContextImpl::cur_dev_handle() const {
+DeviceHandles *ContextImpl::cur_dev_handle() const {
     BM_ASSERT(active_device != -1, "No device is active");
     return dev_handles[active_device];
 }
-MemoryAllocator* ContextImpl::get_allocator() const {
+MemoryAllocator *ContextImpl::get_allocator() const {
     BM_ASSERT(active_device != -1, "No device is active");
     auto allocator = allocators[active_device];
     if (use_cache_alloc_) {
@@ -390,7 +390,7 @@ cublasLtHandle_t ContextImpl::current_cublas_handle() {
     // https://docs.nvidia.com/cuda/cublas/index.html#cublaslthandle-t
     // cuBLAS handle (cublasHandle_t) encapsulates a cuBLASLt handle.
     // Any valid cublasHandle_t can be used in place of cublasLtHandle_t with a simple cast.
-    return (cublasLtHandle_t) cur_dev_handle()->cublas_handle;
+    return (cublasLtHandle_t)cur_dev_handle()->cublas_handle;
 }
 
 Memory ContextImpl::alloc(size_t nbytes, size_t round_up_bytes) {
@@ -398,16 +398,16 @@ Memory ContextImpl::alloc(size_t nbytes, size_t round_up_bytes) {
     auto mem = allocator->alloc(nbytes, round_up_bytes);
     used_memory += nbytes;
     peak_memory = std::max(used_memory, peak_memory);
-    mem->add_deleter([this, nbytes](void* ptr) { used_memory -= nbytes; });
+    mem->add_deleter([this, nbytes](void *ptr) { used_memory -= nbytes; });
     return mem;
 }
 
-void ContextImpl::init_parameter(const std::string& name, Tensor* tensor) const {
+void ContextImpl::init_parameter(const std::string &name, Tensor *tensor) const {
     return engine->init_parameter(name, tensor);
 }
 
-const Tensor* ContextImpl::identity(const Tensor* tensor, const std::string& name) {
-    std::map<long, TensorPtr>& map = tensor_cache[active_device];
+const Tensor *ContextImpl::identity(const Tensor *tensor, const std::string &name) {
+    std::map<long, TensorPtr> &map = tensor_cache[active_device];
     auto search = map.find(tensor->id());
     if (search != map.end()) {
         if (debug >= 3) {
@@ -432,14 +432,14 @@ const Tensor* ContextImpl::identity(const Tensor* tensor, const std::string& nam
     }
     //    BM_CUDART_ASSERT(cudaDeviceSynchronize());
     //    BM_CUDART_ASSERT(cudaStreamSynchronize(current_stream()->ptr));
-    Tensor* new_tensor =
+    Tensor *new_tensor =
         new Tensor(std::make_unique<TensorImpl>(tensor->size(), mem, 0, tensor->dtype()));
     new_tensor->set_name(name);
     map.emplace(tensor->id(), std::unique_ptr<Tensor>(new_tensor));
     return new_tensor;
 }
 
-Tensor ContextImpl::copy(const Tensor& tensor) {
+Tensor ContextImpl::copy(const Tensor &tensor) {
     if (tensor.numel() == 0) {
         return std::move(Tensor());
     }
@@ -458,7 +458,7 @@ void ContextImpl::clear_identity_cache() {
     }
 }
 
-void Context::assign_or_copy(Tensor* dst, const Tensor* src) const {
+void Context::assign_or_copy(Tensor *dst, const Tensor *src) const {
     if (src->device() >= 0) {
         *dst = *src;
         return;
@@ -472,14 +472,14 @@ void Context::assign_or_copy(Tensor* dst, const Tensor* src) const {
     dst->from_buffer(src->data());
 }
 
-void ContextImpl::recordEvent(const std::string& name, float flops) {
+void ContextImpl::recordEvent(const std::string &name, float flops) {
     cudaEvent_t e;
     cudaEventCreate(&e);
     cudaEventRecord(e, current_stream()->ptr);
     events.push_back({e, name, flops});
 }
 
-void Context::recordEvent(const std::string& name, int ev_level, float flops) const {
+void Context::recordEvent(const std::string &name, int ev_level, float flops) const {
     if (pimpl->event_level >= ev_level && pimpl->active_device == 0 && pimpl->rank() == 0) {
         pimpl->recordEvent(name, flops);
     }
@@ -492,21 +492,23 @@ void Context::set_event_level(int level) const {
 void Context::print_events() {
     pimpl->print_events();
 }
-std::mutex& Context::log_mutex() const {
+std::mutex &Context::log_mutex() const {
     return pimpl->engine->log_mutex;
 }
 
 const std::string Context::EMPTY_STR;
 
-Context::Context(std::unique_ptr<ContextImpl>&& impl) : pimpl(std::move(impl)) {
-    char* debug_env = std::getenv("HIGH_PRECISION");
+Context::Context(std::unique_ptr<ContextImpl> &&impl) :
+    pimpl(std::move(impl)) {
+    char *debug_env = std::getenv("HIGH_PRECISION");
     if (debug_env != nullptr) {
         high_precision_ = std::atol(debug_env);
     }
 }
-Context::~Context() { }
+Context::~Context() {
+}
 
-Context::Context(Context&&) = default;
+Context::Context(Context &&) = default;
 
 void Context::alloc_device(int idx) const {
     pimpl->use_device(idx);
@@ -595,17 +597,17 @@ cublasLtHandle_t Context::current_cublas_handle() const {
 
 static inline size_t round_up(size_t num, size_t multiple) {
     return (num + multiple - 1) / multiple * multiple;
-//    size_t numel = get_numel(shape);
-//    if (shape.size() > 1 && dtype == DataType::kHalf) {
-//        numel = round_up(numel, 16 * shape[shape.size() - 1]);
-//    }
-//    size_t nbytes = numel * get_elem_size(dtype);
+    //    size_t numel = get_numel(shape);
+    //    if (shape.size() > 1 && dtype == DataType::kHalf) {
+    //        numel = round_up(numel, 16 * shape[shape.size() - 1]);
+    //    }
+    //    size_t nbytes = numel * get_elem_size(dtype);
 }
 
 Tensor Context::tensor(
-    const std::vector<size_t>& size,
+    const std::vector<size_t> &size,
     DataType dtype,
-    const std::string& name,
+    const std::string &name,
     size_t round_up_bytes) const {
     check_no_zero(size);
     size_t nbytes = get_numel(size) * get_elem_size(dtype);
@@ -619,7 +621,7 @@ Tensor Context::tensor(
     return std::move(tensor);
 }
 Tensor Context::tensor_s(
-    const std::vector<long>& size,
+    const std::vector<long> &size,
     DataType dtype) const {
     std::vector<size_t> shape;
     for (auto d : size) {
@@ -632,7 +634,7 @@ Tensor Context::null_tensor() const {
     return std::move(Tensor());
 }
 
-Tensor Context::parameter(const std::vector<size_t>& size, DataType dtype) const {
+Tensor Context::parameter(const std::vector<size_t> &size, DataType dtype) const {
     check_no_zero(size);
     size_t nbytes = get_numel(size) * get_elem_size(dtype);
     return Tensor(std::make_unique<TensorImpl>(
@@ -641,12 +643,12 @@ Tensor Context::parameter(const std::vector<size_t>& size, DataType dtype) const
             nullptr,
             pimpl->current_device(),
             nbytes,
-            [](void* ptr) { BM_ASSERT(ptr == nullptr, "Memory is not nullptr"); }),
+            [](void *ptr) { BM_ASSERT(ptr == nullptr, "Memory is not nullptr"); }),
         0,
         dtype));
 }
 
-Tensor Context::distribute_parameter(const Tensor& param, DistLayout layout) const {
+Tensor Context::distribute_parameter(const Tensor &param, DistLayout layout) const {
     auto shape = param.shape();
     int shard_dim = shape.size() - (layout == DistLayout::ROW ? 2 : 1);
     BM_ASSERT(shape[shard_dim] % world_size() == 0, "size can't be divided by world_size");
@@ -657,8 +659,8 @@ Tensor Context::distribute_parameter(const Tensor& param, DistLayout layout) con
         local = tensor(param.shape(), param.dtype());
     }
     BM_NCCL_ASSERT(ncclBroadcast(
-        param.data<void*>(),
-        local.mutable_data<void*>(),
+        param.data<void *>(),
+        local.mutable_data<void *>(),
         local.numel(),
         c10d::dtype2nccl(param.dtype()),
         0,
@@ -683,26 +685,26 @@ Tensor Context::distribute_parameter(const Tensor& param, DistLayout layout) con
 // load distributed parameter w/o NCCL.
 // It's faster if there's no NV-Link.
 void Context::load_parameter(
-    Tensor* weight,
-    const std::string& name,
-    const std::map<std::string, const Tensor>& state_dict,
+    Tensor *weight,
+    const std::string &name,
+    const std::map<std::string, const Tensor> &state_dict,
     bool parallel,
     DistLayout layout) const {
     auto it = state_dict.find(name);
     BM_ASSERT(it != state_dict.end(), "param " + name + " not found in state_dict");
-    auto& param = it->second;
+    auto &param = it->second;
     BM_ASSERT_EQ(weight->numel(), param.numel(), name + " shape mismatch");
     static bool print_param = std::getenv("PRINT_LOAD_PARAM") != nullptr;
     if (print_param) {
         std::cout << "Load " << name << ", shape=" << weight->shape() << ", srcShape=" << param.shape() << endl;
     }
     BM_ASSERT_EQ(weight->shape(), param.shape(), "shape mismatch");
-//    if (get_compute_capability() == 80) {
-//        if (rank() == 0)
-//            assign_or_copy(weight, &param);
-//        *weight = distribute_parameter(*weight, layout);
-//        return;
-//    }
+    //    if (get_compute_capability() == 80) {
+    //        if (rank() == 0)
+    //            assign_or_copy(weight, &param);
+    //        *weight = distribute_parameter(*weight, layout);
+    //        return;
+    //    }
     if (!parallel || world_size() == 1 || layout == DistLayout::REPLICATED) {
         assign_or_copy(weight, &param);
         weight->set_name(name);
@@ -725,7 +727,7 @@ void Context::load_parameter(
     BM_ASSERT_EQ(weight->ndim(), 2, "Unsupported ndim");
 
     // case 2: COLUMN layout, slice column in CPU, then copy
-    thread_local char* buf = nullptr;
+    thread_local char *buf = nullptr;
     thread_local size_t buf_size = 0;
     bool use_pin_buf = getenv("USE_PIN_BUF");
     if (use_pin_buf) {
@@ -740,8 +742,8 @@ void Context::load_parameter(
     size_t col_offset = rank() * shard_bytes;
     size_t num_row = weight->size(0);
     for (int i = 0; i < num_row; ++i) {
-        char* dst = buf + i * shard_bytes;
-        char* src = param.data<char>() + i * row_bytes;
+        char *dst = buf + i * shard_bytes;
+        char *src = param.data<char>() + i * row_bytes;
         memcpy(dst, src + col_offset, shard_bytes);
     }
     weight->from_buffer(buf);
@@ -749,7 +751,7 @@ void Context::load_parameter(
         delete[] buf;
 }
 
-const Tensor* Context::identity(const Tensor* tensor, const std::string& name) const {
+const Tensor *Context::identity(const Tensor *tensor, const std::string &name) const {
     if (tensor == nullptr) {
         return nullptr;
     }
@@ -759,7 +761,7 @@ const Tensor* Context::identity(const Tensor* tensor, const std::string& name) c
     return pimpl->identity(tensor, name);
 }
 
-const Tensor Context::copy(const Tensor& tensor) const {
+const Tensor Context::copy(const Tensor &tensor) const {
     return pimpl->copy(tensor);
 }
 
@@ -767,7 +769,7 @@ void Context::clear_identity_cache() {
     pimpl->clear_identity_cache();
 }
 
-void Context::init_parameter(const std::string& name, Tensor* tensor) const {
+void Context::init_parameter(const std::string &name, Tensor *tensor) const {
     return pimpl->init_parameter(name, tensor);
 }
 
@@ -785,7 +787,7 @@ void Context::print_memory_summary() const {
 void Context::print_memory_detail() const {
     // return pimpl->engine->print_mem_info();
 }
-MemoryAllocator* Context::get_allocator() const {
+MemoryAllocator *Context::get_allocator() const {
     return pimpl->get_allocator();
 }
 
@@ -807,14 +809,14 @@ int Context::debug() const {
     return pimpl->debug;
 }
 
-Tensor Context::reduce_sum(Tensor& data, DataType out_type) const {
+Tensor Context::reduce_sum(Tensor &data, DataType out_type) const {
     BM_CUDART_ASSERT(cudaDeviceSynchronize());
-    c10d::NCCLAllReduce(*this, data, data, ncclSum);  // reduce in-place
+    c10d::NCCLAllReduce(*this, data, data, ncclSum); // reduce in-place
     BM_CUDART_ASSERT(cudaDeviceSynchronize());
     return functions::typecast(*this, data, out_type);
 }
 
-Tensor Context::cuda(const Tensor& cpu_tensor) const {
+Tensor Context::cuda(const Tensor &cpu_tensor) const {
     BM_ASSERT_EQ(cpu_tensor.device(), -1, "Not a cpu tensor");
     Tensor out = this->tensor(cpu_tensor.shape(), cpu_tensor.dtype());
     out.set_name(cpu_tensor.name());
@@ -824,16 +826,16 @@ Tensor Context::cuda(const Tensor& cpu_tensor) const {
 
 void ContextImpl::reserve_cache_alloc(size_t s) {
     BM_ASSERT_EQ(1, devices.size() == 1, "TP only");
-    auto alloc =  allocators[0];
+    auto alloc = allocators[0];
     auto stream = engine->get_device_handle(devices[0])->stream;
     cache_allocators.push(new MemoryAllocator(*alloc, s, stream));
 
-//    BM_ASSERT(cache_allocators.empty(), "reserve_cache_alloc called twice");
-//    for (size_t i = 0; i < devices.size(); ++i) {
-//        auto alloc =  allocators[i];
-//        auto stream = engine->get_device_handle(devices[i])->stream;
-//        cache_allocators.push(new MemoryAllocator(*alloc, s, stream));
-//    }
+    //    BM_ASSERT(cache_allocators.empty(), "reserve_cache_alloc called twice");
+    //    for (size_t i = 0; i < devices.size(); ++i) {
+    //        auto alloc =  allocators[i];
+    //        auto stream = engine->get_device_handle(devices[i])->stream;
+    //        cache_allocators.push(new MemoryAllocator(*alloc, s, stream));
+    //    }
 }
 void ContextImpl::free_cache_alloc() {
     BM_ASSERT_EQ(1, devices.size() == 1, "TP only");
@@ -856,6 +858,6 @@ void Context::mem_gc() {
     BM_ASSERT_EQ(1, pimpl->devices.size() == 1, "TP only");
     pimpl->allocators[0]->defragmentation();
 }
-} // namespace core
+}
 
-} // namespace bmengine
+} // namespace bmengine::core

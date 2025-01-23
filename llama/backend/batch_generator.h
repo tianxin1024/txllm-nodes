@@ -17,6 +17,7 @@ namespace batch_generator {
 using namespace bmengine;
 using model::DynBatchConfig;
 using model::ModelBase;
+using model::ModelContext;
 
 struct SearchTask_ {
     std::vector<int32_t> input_tokens;
@@ -57,7 +58,12 @@ public:
 
 }; // end of class TaskQueue
 
+template <class, class>
+class SearcherImplV1;
+
 class BatchGenerator {
+    friend class SearcherImplV1<int, int>;
+
     DynBatchConfig config;
 
     ModelBase *model_;

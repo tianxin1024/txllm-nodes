@@ -7,6 +7,7 @@
 namespace model {
 
 using namespace bmengine;
+using bmengine::core::Context;
 
 ModelContext::ModelContext(core::Context &&ctx,
                            const ModelBase &m,
@@ -32,6 +33,33 @@ ModelContext::~ModelContext() {
     }
 }
 
+void ModelContext::set_host_reducer(std::shared_ptr<HostAllReducer> reducer) {
+    // host_reducer_ = std::move(reducer);
+    cudaStream_t red_stream;
+    // TODO ...
+}
+
+KVCacheConfig ModelContext::get_kv_cache_config() {
+    int num_kv_heads = parallel_ ? cfg.num_kv_heads / world_size() : cfg.num_kv_heads;
+    int dim_head = cfg.dim_head;
+    core::DataType dtype = cfg.dtype;
+    std::shared_ptr<core::DataType> scale_dtype;
+    char *env = std::getenv("KV_CACHE_DTYPE");
+    if (env && *env) {
+        if (std::string("int8") == env) {
+            dtype = core::DataType::kInt8;
+            scale_dtype = std::make_shared<core::DataType>(core::DataType::kFloat);
+        } else {
+            throw std::runtime_error("Unsupported dtype: " + std::string(env));
+        }
+    }
+    is_BSHD();
+    KVCacheConfig cache_config =
+        {cfg.num_layers, num_kv_heads, dim_head, dtype, is_BSHD(), scale_dtype};
+    cache_config.layer_devices = layer_devices;
+    return cache_config;
+}
+
 // for batch_generator
 ModelContext ModelContext::create(core::Engine &engine,
                                   const ModelBase &md,
@@ -46,6 +74,24 @@ ModelContext ModelContext::create(core::Engine &engine,
         devices[0] == dev;
     }
     std::cout << "device: " << devices[0] << std::endl;
+
+    core::Context ctx = parallel ? engine.create_context_rank(dev) : engine.create_context(devices);
+    ModelContext model_ctx(std::move(ctx), md, batch_config.max_batch, parallel);
+    model_ctx.set_BSHD(batch_config.flash_attention);
+    model_ctx.dyn_batch_ = std::make_shared<DynBatchContext>();
+    if (batch_config.rag_buffer) {
+        auto k_cfg = model_ctx.get_kv_cache_config();
+        auto v_cfg = k_cfg;
+        if (model_ctx.latent_cache_ && model_ctx.cfg.kv_lora_rank > 0) {
+            k_cfg.num_heads = 1;
+            v_cfg.num_heads = 1;
+            k_cfg.dim_head = model_ctx.cfg.kv_lora_rank + model_ctx.cfg.qk_rope_head_dim;
+            v_cfg.dim_head = 0;
+        }
+        model_ctx.set_rag_buffer(std::make_shared<RagBufferContext>(k_cfg, v_cfg));
+    }
+    model_ctx.reducer_ = std::make_shared<ReduceContext>();
+    return model_ctx;
 }
 
 } // namespace model
