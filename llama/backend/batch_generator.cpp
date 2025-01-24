@@ -7,6 +7,8 @@
 #include "backend/matrix.h"
 
 #include <bmengine/core/thread_pool.h>
+#include <bmengine/logger/kernel_time_trace.hpp>
+#include <bmengine/logger/std_log_op.hpp>
 #include "private/allocator.h"
 #include <unistd.h>
 #include <sys/syscall.h>
@@ -541,6 +543,45 @@ void SearcherImplV1<int, int>::fill_search_tokens(Matrix2D<int32_t> &h_placement
         peer_run([&](int i) { set_fn(*peer_ctx[i]); }, true);
         return;
     }
+}
+
+using functions::concat_tensor;
+
+template <>
+Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
+    long ts0 = logger::get_time_us();
+
+    Tensor ret_logits;
+    auto peer_fn = [&](int i) {
+        auto &ctx1 = *peer_ctx[i];
+        model::DynBatchContext *dyn_ctx = ctx1.dyn_batch().get();
+        // join encode and search input together to call model->encode()
+        Tensor group_token = concat_tensor(ctx1, dyn_ctx->e_token, dyn_ctx->s_token, 0);
+        Tensor group_position = concat_tensor(ctx1, dyn_ctx->e_position, dyn_ctx->s_position, 0);
+
+        ctx1.rag_buffer()->skip_last = in_chunking();
+        // ctx1.rag_buffer()->set_buffer_addr(ctx1);
+
+        Tensor input_embeddings;
+        Tensor &task0_emb = tasks[0]->input_embeddings;
+        if (!task0_emb.empty() && !dyn_ctx->e_token.empty()) {
+            BM_ASSERT_EQ(1, dyn_ctx->s_token.numel(), "Feed embedding decode tasks[0] only");
+            BM_ASSERT_EQ(group_token.size(0), task0_emb.size(0), "Feed embedding decode tasks[0] only");
+            input_embeddings = ctx1.tensor(task0_emb.shape(), task0_emb.dtype());
+            ctx1.assign_or_copy(&input_embeddings, &task0_emb);
+        }
+
+        auto md = dynamic_cast<model::LLaMALike *>(searcher->par_models_[i]);
+        Tensor hidden_g = md->encode(ctx1,
+                                     group_token,
+                                     group_position,
+                                     Tensor(),
+                                     Tensor(),
+                                     ctx1.dyn_batch()->s_mask,
+                                     ctx1.dyn_batch()->s_placement,
+                                     input_embeddings,
+                                     false);
+    };
 }
 
 template <typename TokenT, typename ResultT>

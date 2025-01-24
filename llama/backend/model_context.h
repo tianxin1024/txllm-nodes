@@ -78,6 +78,10 @@ public:
         rag_buffer_ = buffer;
     }
 
+    std::shared_ptr<RagBufferContext> rag_buffer() {
+        return rag_buffer_;
+    }
+
     HostAllReducer *create_host_reducer();
     void set_host_reducer(std::shared_ptr<HostAllReducer> reducer);
 

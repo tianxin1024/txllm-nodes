@@ -43,4 +43,15 @@ LLaMA::LLaMA(core::Context &ctx, ModelConfig model_config, QuantConfig quant_con
     }
 }
 
+core::Tensor LLaMA::encode(ModelContext &ctx,
+                           const core::Tensor &ids,     // int32 (len_q)
+                           const core::Tensor &pos_ids, // int32 (len_q)
+                           const core::Tensor &seqlens_q,
+                           const core::Tensor &seqlens_kv,
+                           const core::Tensor &mask, // int8 (len_q, len_buf)
+                           const core::Tensor &placement,
+                           const core::Tensor &hidden_pass, // half (batch, len_q, dim_model)
+                           bool ln_output) {
+}
+
 } // namespace model

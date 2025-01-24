@@ -29,15 +29,15 @@ public:
     //                              const core::Tensor &hidden_pass, // half (batch, len_q, dim_model)
     //                              core::Tensor *hidden_ptr = nullptr) = 0;
 
-    // virtual core::Tensor encode(ModelContext &ctx,
-    //                             const core::Tensor &ids,
-    //                             const core::Tensor &pos_ids,
-    //                             const core::Tensor &seqlens_q,
-    //                             const core::Tensor &seqlens_kv,
-    //                             const core::Tensor &mask,
-    //                             const core::Tensor &placement,
-    //                             const core::Tensor &hidden_pass,
-    //                             bool ln_output = true) = 0;
+    virtual core::Tensor encode(ModelContext &ctx,
+                                const core::Tensor &ids,
+                                const core::Tensor &pos_ids,
+                                const core::Tensor &seqlens_q,
+                                const core::Tensor &seqlens_kv,
+                                const core::Tensor &mask,
+                                const core::Tensor &placement,
+                                const core::Tensor &hidden_pass,
+                                bool ln_output = true) = 0;
 
     // virtual core::Tensor get_logits(ModelContext &ctx,
     //                                 const core::Tensor &hidden,
@@ -77,15 +77,15 @@ private:
     //                      const core::Tensor &hidden_pass, // half (batch, len_q, dim_model)
     //                      core::Tensor *hidden_ptr = nullptr) override;
 
-    // core::Tensor encode(ModelContext &ctx,
-    //                     const core::Tensor &ids,        // int32 (batch, len_q)
-    //                     const core::Tensor &pos_ids,    // int32 (batch, len_ext)
-    //                     const core::Tensor &seqlens_q,  // int32 (batch)
-    //                     const core::Tensor &seqlens_kv, // int32 (batch)
-    //                     const core::Tensor &mask,       // int8 (batch, len_q, len_buf)
-    //                     const core::Tensor &placement,
-    //                     const core::Tensor &hidden_pass, // half (batch, len_q, lem_model)
-    //                     bool ln_output = true) override;
+    core::Tensor encode(ModelContext &ctx,
+                        const core::Tensor &ids,        // int32 (batch, len_q)
+                        const core::Tensor &pos_ids,    // int32 (batch, len_ext)
+                        const core::Tensor &seqlens_q,  // int32 (batch)
+                        const core::Tensor &seqlens_kv, // int32 (batch)
+                        const core::Tensor &mask,       // int8 (batch, len_q, len_buf)
+                        const core::Tensor &placement,
+                        const core::Tensor &hidden_pass, // half (batch, len_q, lem_model)
+                        bool ln_output = true) override;
 
     // core::Tensor get_logits(ModelContext &ctx, const core::Tensor &hidden, bool ln_input) override;
 };
