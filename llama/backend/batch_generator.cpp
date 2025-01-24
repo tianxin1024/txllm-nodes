@@ -4,6 +4,7 @@
 #include "backend/beam_result_manager.h"
 #include "backend/beam_buffer_manager.h"
 #include "backend/dyn_batch_context.h"
+#include "backend/matrix.h"
 
 #include <bmengine/core/thread_pool.h>
 #include "private/allocator.h"
@@ -18,9 +19,16 @@ using bmengine::core::TaskThreadPool;
 using generator::BeamHypothesis;
 using generator::SearchResult;
 using generator::SearchResults;
+using bmengine::core::Tensor;
+
+using utils::Matrix2D;
+typedef utils::Matrix2D<int32_t> Mat2DInt;
 
 typedef std::unique_lock<std::mutex> Lock;
 typedef unsigned int len_t;
+
+template <class T>
+using RagVector = std::vector<std::vector<T>>; // sub-vector has different size.
 
 TaskQueue::TaskQueue(int max_size) :
     max_size_(max_size) {
@@ -77,6 +85,11 @@ void BatchGenerator::stop() {
     }
 }
 
+size_t TaskQueue::size() {
+    Lock lock(mutex_);
+    return queue_.size();
+}
+
 class TopKWrapper {
     model::ModelContext &ctx;
     std::unique_ptr<functions::TopK> topk;
@@ -123,6 +136,15 @@ public:
 
 }; // end of class TopKWrapper
 
+len_t calc_max_beam_size(std::vector<SearchTask> &tasks, len_t beam_size) {
+    for (SearchTask &task : tasks) {
+        if (task) {
+            beam_size = std::max(beam_size, len_t(task->beam_size));
+        }
+    }
+    return beam_size;
+}
+
 static int _get_tid() {
     return syscall(SYS_gettid);
 }
@@ -159,6 +181,34 @@ struct SwapBuf {
         }
     }
 }; // end of struct SwapBuf
+
+static void print_model_dim(const ModelBase &m) {
+    std::cout << "num_layers=" << m.num_layers
+              << ", dim_model=" << m.dim_model
+              << ", dim_ff=" << m.dim_ff
+              << ", num_heads=" << m.num_heads
+              << ", num_kv_heads=" << m.num_kv_heads
+              << ", dim_head=" << m.dim_head
+              << ", num_heads*dim_head=" << m.num_heads * m.dim_head
+              << std::endl;
+}
+
+static void print_config(const DynBatchConfig &config, bool parallel) {
+    std::cout << "DynBatch (";
+    std::cout << "max_batch=" << config.max_batch;
+    std::cout << ", beam_size=" << config.max_beam_size;
+    std::cout << ", queue_size=" << config.task_queue_size;
+    std::cout << ", bos=" << config.bos_id;
+    std::cout << ", eos=" << config.eos_id;
+    if (parallel) {
+        std::cout << ", parallel=true, reduce_sum=" << (config.nccl ? "NCCL" : "manual");
+    }
+    std::cout << (config.flash_attention ? ", flash_attention" : "");
+    if (config.rag_buffer) {
+        std::cout << ", rag_buffer=true, reserved_work_mem=" << config.reserved_work_mem_mb << "MB";
+    }
+    std::cout << ")" << std::endl;
+}
 
 static size_t get_kv_buf_bytes(const ModelBase &m, int len, int rep = 1) {
     int dim_kv = m.num_kv_heads * m.dim_head;
@@ -197,19 +247,29 @@ class SearcherImplV1 {
 
     int debug_batch{-1};
     int debug_batch_idx{-1};
+    int batch_idx{0};
     int debug_level{0};
+    len_t num_new_tasks{0};
     int dual_stream{false};
     bool pre_alloc{false};
+    int chunking_b{-1}; // index of chunking task, usually the last
     bool enabled_chunk_prefill;
     len_t chunk_size;
 
     std::vector<TaskThreadPool *> device_threads;
 
     std::vector<std::vector<SwapBuf>> swapped_buffers;
+    len_t swap_count{0};
     len_t kv_buf_btypes;
+    len_t total_len_buf{0};
+    len_t max_buf_token_num;
+
+    bool in_chunking() {
+        return chunking_b != -1;
+    }
 
 public:
-    NO_GCC_OPT
+    // NO_GCC_OPT
     SearcherImplV1(model::ModelContext &ctx, DynBatchConfig config, BatchGenerator *searcher) :
         max_batch(config.max_batch),
         max_beam_size(config.max_beam_size),
@@ -226,14 +286,15 @@ public:
         next_tokens(max_batch),
         swapped_buffers(max_batch),
         beam_size(max_beam_size) {
-        debug_level = utils::get_int_env("DYN_BATCH_DEBUG", utils::get_int_env("BM_DEBUG_LEVEL"));
+        // debug_level = utils::get_int_env("DYN_BATCH_DEBUG", utils::get_int_env("BM_DEBUG_LEVEL"));
+        debug_level = utils::get_int_env("DYN_BATCH_DEBUG");
         if (debug_level) {
             std::cout << "LWP " << _get_tid() << " DynBatch-Main\n";
         }
         topk_all.set_seed(config.seed != 0, config.seed);
         debug_batch_idx = utils::get_int_env("DEBUG_BATCH", -1);
         bool need_dequant_weight = utils::get_int_env("DEED_DEQUANT_WEIGHT", 0) > 0;
-        // auto dev = ctx.with_device(0);
+        auto dev = ctx.with_device(0);
         dual_stream = utils::get_int_env("DUAL_STREAM", 0) && ctx.get_compute_capability() > 80;
         bool host_reduce = utils::get_int_env("HOST_REDUCE", 0) > 0;
         enabled_chunk_prefill = utils::get_int_env("CHUNKED_PREFILL", 0) > 0;
@@ -284,10 +345,8 @@ public:
 
         // calc max_buf_token_num
         auto &model = *searcher->model_;
-        std::cout << "ctx addr: " << &ctx << std::endl;
-        // auto allocator = ctx.get_allocator();
-        // size_t free_mem = allocator->get_free_memory();
-        std::cout << ">>>>>>>>>>>>>>>>>: need_dequant_weight : " << need_dequant_weight << std::endl;
+        auto allocator = ctx.get_allocator();
+        size_t free_mem = allocator->get_free_memory();
         kv_buf_btypes = get_kv_buf_bytes(model, 1) / ctx.world_size();
         // if (ctx.rag_buffer()->is_cache_quant()) {
         //     kv_buf_bytes /= 2;
@@ -295,7 +354,42 @@ public:
         // if (ctx.latent_cache() && ctx.cfg.kv_lora_rank > 0) {
         //     kv_buf_bytes = model.num_layers * (ctx.cfg.kv_lora_rank + ctx.cfg.qk_rope_head_dim) * sizeof(half);
         // }
-        size_t reserve_mem = size_t(config.reserved_work_mem_mb) * 1024U * 1024U;
+        // TODO memory / 10
+        size_t reserve_mem = size_t(config.reserved_work_mem_mb) * 1024U * 1024U / 10;
+        if (need_dequant_weight) {
+            std::cout << ">>>>>>>>>>>>>> need_dequant_weight " << std::endl;
+        }
+        if (dual_stream) {
+            std::cout << ">>>>>>>>>>> dual stream" << std::endl;
+        }
+        max_buf_token_num = (free_mem - reserve_mem) / kv_buf_btypes;
+        static bool logged = false;
+
+        if (debug_level > 0 && !logged) {
+            logged = true;
+            print_model_dim(model);
+            print_config(config, !peer_ctx.empty());
+            std::cout << "free_mem=" << (free_mem / 102400) << "MB, ";
+            std::cout << "reserve_mem=" << (reserve_mem / 102400) << "MB, ";
+            std::cout << "kv_per_token=" << (kv_buf_btypes / 1024) << "KB, ";
+            std::cout << "max_buf_token_num=" << max_buf_token_num << std::endl;
+        }
+        if (reserve_mem > free_mem) {
+            throw std::runtime_error("Not enough memory for workspace");
+        }
+        if (config.max_total_token > max_buf_token_num) {
+            // throw std::runtime_error("Not enough memory for max_total_token > " + std::to_string(max_buf_token_num));
+        }
+
+        // prefix_cache.resize(device_threads.size() + 1);
+        if (config.enable_prompt_caching) {
+            // TODO: better config
+            max_buf_token_num /= 2; // use half memory for cache
+            int block_size = utils::get_int_env("CACHE_BLOCK_SIZE", 128);
+            int block_num = max_buf_token_num / block_size;
+            int max_prefix = utils::get_int_env("CACHE_MAX_PREFIX", 4096) / block_size;
+            std::cout << "cache block_num: " << block_num << std::endl;
+        }
     }
 
     ~SearcherImplV1() {
@@ -341,12 +435,195 @@ public:
 
     void batch_search();
 
+    void set_debug_batch(int i, int b) {
+        if (batch_idx++ == debug_batch_idx) {
+            std::cout << "b=" << b << ", i=" << i
+                      << ", batch_idx=" << batch_idx - 1
+                      << ", debug_batch_idx=" << debug_batch_idx << std::endl;
+            debug_batch = b;
+            ctx.dyn_batch()->debug_batch = i;
+        }
+    }
+
+    void fill_encode_input(std::vector<SearchTask> &new_tasks);
+
+    void fill_search_tokens(Mat2DInt &h_placement, Matrix2D<float> &h_prob_prev);
+
+    Tensor join_forward(Tensor *hidden);
+
+    len_t assign_free_slot(SearchTask task) {
+        for (len_t b = 0; b < tasks.size(); ++b) {
+            if (!tasks[b]) {
+                return b;
+            }
+        }
+        return -1;
+    }
+
+    void init_slot(len_t b, SearchTask task) {
+        max_batch_active = std::max(b + 1, max_batch_active);
+
+        // tasks[b] = task;
+        // std::cout << "task: b=" << b << ", random=" << task->is_random() << ", seed=" << task->seed << std::endl;
+
+        // if (!topk[b]) {
+        //     topk[b].reset(new TopKWrapper(ctx));
+        // }
+        // topk[b]->set_seed(task->diverse || task->is_random(), task->seed);
+        // result_mgr[b].reset(std::max(task->beam_size, task->num_results));
+        // if (!config.rag_buffer) {
+        //     bm[b].reset(len_buf); // global len_buf
+        // } else {
+        //     // individual len_buf
+        //     len_t new_len_buf = round_up_len(task->input_length() + 2, 32);
+        //     bm[b].reset(new_len_buf);
+        //     if (pre_alloc) {
+        //         len_t full_len_buf = round_up_len(task->full_length() + 2, 32);
+        //         resize_task_buf(b, full_len_buf, true);
+        //     } else {
+        //         resize_task_buf(b, new_len_buf); // alloc new
+        //     }
+        // }
+    }
+
+    len_t get_batch_active() {
+        return max_batch_active;
+    }
+
 }; // end of class SearcherImplV1
+
+template <>
+void SearcherImplV1<int, int>::fill_encode_input(std::vector<SearchTask> &new_tasks) {
+    bool chunking = in_chunking();
+    if (chunking) {
+        BM_ASSERT(new_tasks.empty(), "");
+        new_tasks.push_back(tasks[chunking_b]);
+    }
+
+    std::vector<int> v_batch(new_tasks.size());
+    std::vector<int> input_lens(new_tasks.size());
+    std::vector<int> full_input_lens(new_tasks.size()); // flash attention need real length
+    std::vector<int> buf_lens(new_tasks.size());
+    // fill matrices of input tokens
+    RagVector<int32_t> h_token;
+    RagVector<int32_t> h_batch;     // batch in buffer
+    RagVector<int32_t> h_placement; // pos in buffer
+    RagVector<int32_t> h_position;
+    RagVector<int8_t> h_mask;
+
+    for (size_t i = 0; i < new_tasks.size(); ++i) {
+        auto &task = new_tasks[i];
+        auto &tokens = task->input_tokens;
+        len_t b;
+        if (chunking) {
+            b = chunking_b;
+        } else {
+            b = assign_free_slot(task);
+            BM_ASSERT(b != len_t(-1), "No free slot");
+            set_debug_batch(i, b);
+            init_slot(b, task);
+        }
+        v_batch[i] = b;
+    }
+}
+
+template <>
+void SearcherImplV1<int, int>::fill_search_tokens(Matrix2D<int32_t> &h_placement, Matrix2D<float> &h_prob_prev) {
+    len_t batch_active = get_batch_active();
+    if (batch_active == 0) {
+        std::cout << "in_chunking: " << in_chunking() << std::endl;
+        // BM_ASSERT(in_chunking(), "");
+        auto set_fn = [&](ModelContext &ctx) {
+            ctx.dyn_batch()->set_search(Tensor(), Tensor(), Tensor(), Tensor(), Tensor());
+            ctx.dyn_batch()->sv_len_buf = {};
+            ctx.dyn_batch()->s_len_buf = Tensor();
+        };
+        peer_run([&](int i) { set_fn(*peer_ctx[i]); }, true);
+        return;
+    }
+}
 
 template <typename TokenT, typename ResultT>
 void SearcherImplV1<TokenT, ResultT>::batch_search() {
     int active_count = 0;
-    exit(0);
+
+    while (true) {
+        if (in_chunking()) {
+            max_batch_active = chunking_b + 1;
+        }
+        if (config.rag_buffer) {
+        }
+        searcher->active_size_ = active_count;
+        if (active_count == 0 && searcher->queue_.size() == 0) {
+            searcher->done_cond_.notify_one();
+        }
+        int max_total_token;
+        if (swap_count == 0 && active_count < max_batch && !in_chunking()) {
+            int free_token_num = int(max_buf_token_num - total_len_buf - 2);
+            if (dual_stream)
+                free_token_num -= config.max_total_token - 5000;
+            max_total_token = std::min(config.max_total_token, free_token_num);
+            if (pre_alloc && dual_stream) {
+                auto dev = ctx.with_device(0);
+                ctx.use_cache_alloc(true);
+                max_total_token = ctx.get_allocator()->get_free_memory() / kv_buf_btypes;
+                ctx.use_cache_alloc(false);
+            }
+            int limit = 1; // dual_stream ? 1 : max_batch - active_count
+            // new_tasks = searcher->queue_.pop_multi(
+            //     limit, active_count == 0, 1, max_total_token, pre_alloc);
+            // for (auto task : new_tasks) {
+            //     task->begin_ts = logger::get_time_us();
+            // }
+        }
+
+        if (searcher->stopping_) {
+            break;
+        } else if (max_batch_active == 0) {
+            // BM_ASSERT(!new_tasks.empty(), "pop_multi() return 0 tasks.");
+        }
+        auto dev = ctx.with_device(0);
+
+        // resize fields
+        if (!config.rag_buffer) {
+            std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> current \n";
+        }
+        num_new_tasks = new_tasks.size();
+        if (debug_level && num_new_tasks > 0) {
+            std::cout << "new_tasks=" << new_tasks.size()
+                      << ", active_count=" << active_count << std::endl;
+        }
+        bool feed_input_embedding = !new_tasks.empty() && !new_tasks[0]->input_embeddings.empty();
+        if (feed_input_embedding && tasks[0]) {
+            // int b = assign_free_slot(tasks[0]);
+            // if (debug_level) std::cout << "Move task 0 to " << b << std::endl;
+            // move_task(b, 0);
+            // BM_ASSERT(!tasks[0], "Feed input_embeddings need put task at index=0");
+        }
+
+        /** -------------------------- Fill Encode Input -------------------------- **/
+        if (!new_tasks.empty() || in_chunking()) {
+            std::cout << "<<<<<<<<<<<<<<<<<<<<< current new_tasks" << std::endl;
+            fill_encode_input(new_tasks); // update max_batch_active in init_slot()
+            new_tasks.clear();
+        } else {
+            peer_run([&](int i) { peer_ctx[i]->dyn_batch()->clear_encode(); });
+        }
+        max_beam_size = calc_max_beam_size(tasks, 1);
+
+        /** -------------------------- Fill Next Search --------------------------- **/
+        if (feed_input_embedding) max_batch_active = 1;
+        if (in_chunking()) max_batch_active = chunking_b;
+        Matrix2D<int32_t> h_placement(max_batch_active, max_beam_size, -1); // pos in buffer
+        Matrix2D<float> h_prob_prev(max_batch_active, max_beam_size, -50000);
+        fill_search_tokens(h_placement, h_prob_prev);
+
+        /** -------------------------- Get Search Logits --------------------------- **/
+        Tensor hidden;
+        Tensor logits_all = join_forward(&hidden);
+
+        exit(0);
+    }
 }
 
 void BatchGenerator::run() {

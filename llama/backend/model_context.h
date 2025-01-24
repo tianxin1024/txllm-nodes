@@ -71,6 +71,9 @@ public:
                                int dev,
                                bool parallel);
 
+    std::shared_ptr<DynBatchContext> dyn_batch() const {
+        return dyn_batch_;
+    }
     void set_rag_buffer(const std::shared_ptr<RagBufferContext> &buffer) {
         rag_buffer_ = buffer;
     }

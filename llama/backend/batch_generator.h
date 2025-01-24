@@ -38,6 +38,8 @@ struct SearchTask_ {
     std::function<void(const generator::SearchResults &results)> callback;
     volatile bool canceled{false};
 
+    bmengine::core::Tensor input_embeddings; // passed-in embeddings of 'PROMPT', device=CPU
+
 }; // end of struct SearchTask_
 
 typedef std::shared_ptr<SearchTask_> SearchTask;
@@ -71,6 +73,7 @@ class BatchGenerator {
     bmengine::core::Engine *engine_;
 
     TaskQueue queue_;
+    int active_size_;
 
     std::shared_ptr<std::thread> thread_;
     volatile bool stopping_{false};

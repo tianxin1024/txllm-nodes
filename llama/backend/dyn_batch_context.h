@@ -52,7 +52,7 @@ struct RopeCache {
 struct DynBatchContext {
     RopeCache rope_cache;
     // search
-    Tensor s_toknel;
+    Tensor s_token;
     Tensor s_sub;
     Tensor s_placement;
     Tensor s_position;
@@ -60,7 +60,7 @@ struct DynBatchContext {
     vector<Tensor> s_position_buckets; // for CPMBee ragged buffer
     vector<Tensor> s_position_biases;  // for CPMBee ragged buffer
     vector<int> sv_len_buf;            // for ragged buffer
-    Tensor s_leb_buf;                  // for ragged buffer
+    Tensor s_len_buf;                  // for ragged buffer
     // encode
     Tensor e_token;
     Tensor e_sub;
@@ -91,6 +91,50 @@ struct DynBatchContext {
     std::shared_ptr<Tensor> unquant_key_buf;
     std::shared_ptr<Tensor> unquant_val_buf;
     int input_len_no_split;
+
+    void set_search(const Tensor &token_ids,
+                    const Tensor &token_sub,
+                    const Tensor &placement,
+                    const Tensor &position,
+                    const Tensor &mask) {
+        s_token = token_ids;
+        s_sub = token_sub;
+        s_placement = placement;
+        s_position = position;
+        s_mask = mask;
+    }
+
+    void set_encode(const Tensor &token_ids,
+                    const Tensor &token_sub,
+                    const Tensor &placement,
+                    const Tensor &position,
+                    const Tensor &mask) {
+        e_token = token_ids;
+        e_sub = token_sub;
+        e_placement = placement;
+        e_position = position;
+        e_mask = mask;
+    }
+
+    void set_encode_batch(const vector<int> &v_batch, const Tensor &batch) {
+        this->ev_batch = v_batch;
+        this->e_batch = batch;
+    }
+
+    void set_encode_len(const vector<int> &v_input_len,
+                        const vector<int> &full_input_lens,
+                        const Tensor &input_len) {
+        this->ev_input_len = v_input_len;
+        this->full_input_len = full_input_lens;
+        this->e_input_len = input_len;
+    }
+
+    void clear_encode() {
+        set_encode(Tensor(), Tensor(), Tensor(), Tensor(), Tensor());
+        set_encode_batch(vector<int>(), Tensor());
+        set_encode_len({}, {}, Tensor());
+        ev_len_buf.clear();
+    }
 
 }; // end of struct DynBatchContext
 

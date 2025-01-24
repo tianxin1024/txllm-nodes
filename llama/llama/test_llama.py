@@ -1,3 +1,4 @@
+import os
 import time
 import torch
 import numpy as np
@@ -7,6 +8,8 @@ from transformers import LlamaTokenizer, LlamaForCausalLM
 from llama import LLaMAModelConfig, LLaMA
 from quant import QuantConfig, QuantType
 from dynamic_batch import GeneratorArg, DynamicBatchConfig, DynamicBatchGenerator
+
+os.environ["DYN_BATCH_DEBUG"] = "1"
 
 def main():
     t0 = time.time()
@@ -44,8 +47,6 @@ def main():
         req_result = generator.generate(messages, arg)
         print("...." * 100)
         print(req_result)
-
-
 
     print("done!!!")
 

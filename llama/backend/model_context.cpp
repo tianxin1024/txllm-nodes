@@ -66,12 +66,13 @@ ModelContext ModelContext::create(core::Engine &engine,
                                   const DynBatchConfig &batch_config,
                                   int dev,
                                   bool parallel) {
+    std::cout << ">>>>>>>>>> dev: " << dev << std::endl;
     std::vector<int> devices(dev == -1 ? engine.num_gpus() : 1);
     std::cout << "ModelContext create " << std::endl;
     if (dev == -1) {
         std::iota(devices.begin(), devices.end(), 0);
     } else {
-        devices[0] == dev;
+        devices[0] = dev;
     }
     std::cout << "device: " << devices[0] << std::endl;
 
