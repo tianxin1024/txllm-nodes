@@ -1,5 +1,7 @@
 #include "backend/llama.h"
 #include "backend/allocate_utils.h"
+#include "backend/model_context.h"
+#include "backend/utils.h"
 
 namespace model {
 
@@ -52,6 +54,38 @@ core::Tensor LLaMA::encode(ModelContext &ctx,
                            const core::Tensor &placement,
                            const core::Tensor &hidden_pass, // half (batch, len_q, dim_model)
                            bool ln_output) {
+    ctx.set_current_layer(-1);
+    Tensor hidden;
+    if (hidden_pass.empty()) {
+        hidden = token_embedding(ctx, ids);
+    } else {
+        hidden = functions::typecast(ctx, hidden_pass, dtype);
+    }
+    // if (rope_preparer && ctx.dyn_batch()) {
+    //     auto &rope_cache = ctx.dyn_batch()->rope_cache;
+    //     std::tie(rope_cache.cos, rope_cache.sin) = rope_preparer->forward(ctx, pos_ids);
+    // }
+    bool dual_stream = utils::get_int_env("DUAL_STREAM", 0) > 0 && ctx.world_size() > 1;
+    int dual_stream_thres = utils::get_int_env("DUAL_STREAM_THRESHOLD", 1024);
+    if (dual_stream && ctx.get_compute_capability() > 80 && ids.size(0) > dual_stream_thres) {
+        // hidden = EncoderLayer::dual_stream_encode(ctx, encoder, hidden, pos_ids);
+    } else {
+        int debug_layer = utils::get_int_env("CPM_DEBUG_LAYER", -1);
+        int debug_layer_level = utils::get_int_env("CPM_DEBUG_LAYER_LEVEL", 2);
+        int event_level = utils::get_int_env("CPM_DEBUG_LAYER_EV_LEVEL", debug_layer_level);
+        for (int i = 0; i < num_layers; i++) {
+            ctx.set_current_layer(i);
+            auto org_debug_level = ctx.debug();
+            if (i == debug_layer && ctx.rank() == 0) {
+                ctx.enable_debug(debug_layer_level);
+                ctx.set_event_level(event_level);
+            }
+            hidden = encoder[i](ctx, hidden, mask, pos_ids, seqlens_q, seqlens_kv,
+                                ctx.buf_k(i), ctx.buf_v(i), ctx.block_table(i),
+                                &placement);
+        }
+    }
+    ctx.set_current_layer(-1);
 }
 
 } // namespace model

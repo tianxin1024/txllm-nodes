@@ -6,6 +6,7 @@
 namespace model {
 
 using namespace kvcache;
+using bmengine::core::Tensor;
 
 /*
 * Generation buffers managment
@@ -19,9 +20,13 @@ public:
     BufferContext(const ModelBase &md, bool parallel = false) :
         model_(md), parallel_(parallel) {
     }
-
     ~BufferContext() = default;
     BufferContext(BufferContext &&) = default;
+
+    virtual Tensor *buf_k(size_t layer) = 0;
+    virtual Tensor *buf_v(size_t layer) = 0;
+
+    virtual const Tensor *block_table(size_t layer) = 0;
 
     virtual void set_layer_devices(const std::vector<int> &layer_devices) = 0;
 
@@ -44,6 +49,11 @@ public:
                              int world_size = 1,
                              bool BSHD = false);
     ~TransformerBufferContext();
+
+    Tensor *buf_k(size_t layer) override;
+    Tensor *buf_v(size_t layer) override;
+
+    const Tensor *block_table(size_t layer) override;
 
     void set_layer_devices(const std::vector<int> &layer_devices) override;
 

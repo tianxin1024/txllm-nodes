@@ -54,6 +54,8 @@ private:
 
     std::shared_ptr<ReduceContext> reducer_;
 
+    std::map<std::string, Tensor> layer_cache_;
+
     bool latent_cache_{false};
 
 public:
@@ -64,6 +66,21 @@ public:
                  bool BSHD = false);
     ~ModelContext() override;
     ModelContext(ModelContext &&) = default;
+
+    static ModelContext *cast(const core::Context &ctx) {
+        return dynamic_cast<ModelContext *>(const_cast<core::Context *>(&ctx));
+    }
+
+    Tensor *buf_k(size_t layer) {
+        return buf_ctx_ == nullptr ? nullptr : buf_ctx_->buf_k(layer);
+    }
+    Tensor *buf_v(size_t layer) {
+        return buf_ctx_ == nullptr ? nullptr : buf_ctx_->buf_v(layer);
+    }
+
+    const Tensor *block_table(size_t layer) {
+        return buf_ctx_ == nullptr ? nullptr : buf_ctx_->block_table(layer);
+    }
 
     static ModelContext create(core::Engine &engine,
                                const ModelBase &md,
@@ -84,6 +101,11 @@ public:
 
     HostAllReducer *create_host_reducer();
     void set_host_reducer(std::shared_ptr<HostAllReducer> reducer);
+
+    void set_current_layer(int i) {
+        Context::set_current_layer(i);
+        layer_cache_.clear();
+    }
 
 private:
     KVCacheConfig get_kv_cache_config();

@@ -2,6 +2,7 @@
 
 #include <bmengine/core/core.h>
 #include "backend/model.h"
+#include "backend/model_context.h"
 
 namespace nn {
 
@@ -14,6 +15,11 @@ class Attention : public core::Layer {
               model::ModelConfig block_config,
               model::QuantConfig quant_config,
               bool parallel);
+
+    core::Tensor dyn_rag_forward(model::ModelContext &ctx,
+                                 const core::Tensor &inp,
+                                 const core::Tensor &position,
+                                 core::Tensor *outptu = nullptr);
 
     void load_state_dict(const core::Context &ctx,
                          const std::map<std::string, const core::Tensor> &state_dict,

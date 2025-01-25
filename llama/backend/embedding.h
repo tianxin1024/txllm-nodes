@@ -19,6 +19,9 @@ class RawEmbedding : public core::Layer {
     void set_scale_factor(float b);
     void set_logit_scale(float b);
 
+    core::Tensor forward(const core::Context &ctx,
+                         const core::Tensor &ids);
+
     void load_state_dict(const core::Context &ctx,
                          const std::map<std::string, const core::Tensor> &state_dict,
                          const std::string &prefix,

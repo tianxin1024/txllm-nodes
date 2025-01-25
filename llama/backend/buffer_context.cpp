@@ -18,7 +18,18 @@ TransformerBufferContext::TransformerBufferContext(
     //     batch_size, m.num_layers, num_kv_heads, m.dim_head, m.dtype, parallel, BSHD);
 }
 
-TransformerBufferContext::~TransformerBufferContext() {
+TransformerBufferContext::~TransformerBufferContext() = default;
+
+Tensor *TransformerBufferContext::buf_k(size_t layer) {
+    return &(*buf_k_)[layer];
+}
+
+Tensor *TransformerBufferContext::buf_v(size_t layer) {
+    return &(*buf_v_)[layer];
+}
+
+const Tensor *TransformerBufferContext::block_table(size_t layer) {
+    return nullptr;
 }
 
 void TransformerBufferContext::set_layer_devices(const std::vector<int> &layer_devices) {

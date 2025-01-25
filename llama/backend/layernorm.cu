@@ -2,6 +2,18 @@
 
 namespace nn {
 
+__host__ void layernorm(const core::Tensor &input,  // (batch, seq_len, dim_model)
+                        const core::Tensor &weight, // (dim_model)
+                        core::Tensor *output,       // (batch, seq_len, dim_model)
+                        float eps,
+                        float scale,
+                        bool rms,
+                        cudaStream_t stream,
+                        const core::Tensor *input2 = nullptr,
+                        core::Tensor *out_sum = nullptr) {
+    // TODO tianx ...
+}
+
 class LayerNorm::impl {
 public:
     class QuantImpl;
@@ -21,6 +33,19 @@ public:
 
     void set_rms(bool b) {
         rms = b;
+    }
+
+    virtual core::Tensor forward(const core::Context &ctx,
+                                 const core::Tensor &input) { // (batch, seq_len, dim_model)
+
+        BM_ASSERT(input.dtype() == weight.dtype(), "dtype mismatch");
+        BM_ASSERT_EQ(input.size(-1), weight.size(0), "dim mismatch");
+        BM_ASSERT(input.ndim() >= 2, "input.ndim() must be >= 2");
+        BM_ASSERT(input.device() == weight.device(), "Input and weight must be on the same device");
+        core::Tensor output = ctx.tensor(input.shape(), input.dtype());
+        BM_ASSERT(output.device() == weight.device(), "Output and weight must be on the same device");
+        layernorm(input, weight, &output, eps, scale, rms, ctx.current_stream()->ptr);
+        return output;
     }
 
 }; // end of class LayerNorm::impl
@@ -69,6 +94,12 @@ LayerNorm::LayerNorm(const core::Context &ctx,
 }
 
 LayerNorm::~LayerNorm() = default;
+
+core::Tensor LayerNorm::forward(const core::Context &ctx, const core::Tensor &x) {
+    size_t M = x.numel() / x.size(-1);
+    core::EventScope event_scope(ctx, "LayerNorm[M=" + std::to_string(M) + "]", 1, 2 * x.nbytes());
+    return pimpl->forward(ctx, x);
+}
 
 void LayerNorm::set_rms(bool b) {
     pimpl->set_rms(b);

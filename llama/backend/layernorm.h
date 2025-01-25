@@ -14,6 +14,8 @@ class LayerNorm : public core::Layer {
               core::DataType dtype = core::DataType::kHalf,
               int num_head = 1);
 
+    core::Tensor forward(const core::Context &ctx, const core::Tensor &x);
+
     void set_rms(bool b); // If false, use standard LayerNorm
 
     void load_state_dict(const core::Context &ctx,

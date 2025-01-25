@@ -6,11 +6,13 @@
 #include "backend/utils.h"
 #include <bmengine/functions/element.h>
 #include "private/allocator.h"
+#include <bmengine/logger/std_log_op.hpp>
 
 namespace nn {
 
 using namespace bmengine;
 using model::ModelContext;
+using bmengine::core::Tensor;
 
 class EncoderLayer::impl {
 public:
@@ -56,6 +58,28 @@ public:
         ln_attn.set_rms(false);
     }
 
+    core::Tensor dyn_forward(const core::Context &ctx,
+                             const core::Tensor &input,
+                             const core::Tensor &position) {
+        ModelContext *m_ctx = ModelContext::cast(ctx);
+
+        const Tensor &residual = input;
+        Tensor hidden_states = ln_attn(ctx, input);
+        std::cout << "input: " << input << endl;
+        std::cout << "hidden_states: " << hidden_states << std::endl;
+        Tensor attn_out = attn.dyn_rag_forward(*m_ctx, hidden_states, position);
+        Tensor mlp_out = ff.forward(ctx, hidden_states);
+
+        // Add everything together
+        functions::BinaryElementwiseOp add_op(ctx, functions::BinaryElementwiseOp::Add);
+        Tensor ret = add_op.forward(ctx, attn_out, mlp_out);
+        if (parallel) {
+            ret = ctx.reduce_sum(ret, dtype);
+        }
+        add_op.inplace(ctx, ret, residual);
+        return ret;
+    }
+
 }; // end of class EncoderLayer::impl::CohereImpl
 
 EncoderLayer::EncoderLayer(const core::Context &ctx,
@@ -88,6 +112,60 @@ EncoderLayer::EncoderLayer(const core::Context &ctx,
 }
 
 EncoderLayer::~EncoderLayer() = default;
+
+core::Tensor EncoderLayer::forward(const core::Context &ctx,
+                                   const core::Tensor &inp,           // (batch, len_q, dim_model)
+                                   const core::Tensor &mask,          // (batch, len_q, len_buf)
+                                   const core::Tensor &position_bias, // if relative (batch, num_head, len_q, len_buf) else if rotary (batch, len_q)
+                                   const core::Tensor &seqlens_q,     // (batch)
+                                   const core::Tensor &seqlens_kv,    // (batch)
+                                   const core::Tensor *past_k,        // (batch, num_head, len_buf, dim_head)
+                                   const core::Tensor *past_v,        // (batch, num_head, len_buf, dim_head)
+                                   const core::Tensor *block_table,   // (batch, blocks_per_seq)
+                                   const core::Tensor *placement) {   // (batch, len_q) int32
+    size_t M = inp.numel() / inp.size(-1);
+    core::EventScope event_scope(ctx, logger::str_cat("EncoderLayer[M=", M, "]"), 1);
+    {
+        bool switched = ctx.switch_to_device(dev);
+        if (switched && ctx.debug() >= 2) {
+            std::cerr << "EncoderLayer[" << layer_id << "]::forward() switch to device " << dev << std::endl;
+        }
+    }
+    // copy and cache to current layer's device, if necessary
+    const core::Tensor *p_input = ctx.identity(&inp, "EncoderInput");
+    const core::Tensor *p_mask = ctx.identity(&mask, "EncoderMask");
+    const core::Tensor *p_pos_bias = ctx.identity(&position_bias, "EncoderPosBias");
+    const core::Tensor *p_placement = ctx.identity(placement, "EncoderPosBias");
+    const core::Tensor *p_seqlens_q = ctx.identity(&seqlens_q, "EncoderQSeqLens");
+    const core::Tensor *p_seqlens_kv = ctx.identity(&seqlens_kv, "EncoderKVSeqLens");
+
+    impl::CohereImpl *cohere = dynamic_cast<impl::CohereImpl *>(pimpl.get());
+    if (cohere) {
+        return cohere->dyn_forward(ctx, *p_input, *p_pos_bias);
+    }
+    core::Tensor tensor = pimpl->forward(ctx,
+                                         *p_input,
+                                         *p_mask,
+                                         *p_pos_bias,
+                                         *p_seqlens_q,
+                                         *p_seqlens_kv,
+                                         past_k,
+                                         past_v,
+                                         block_table,
+                                         p_placement);
+
+    if (output_dev != dev) {
+        // at last layer, switch back to device 0, and copy output
+        ctx.switch_to_device(output_dev);
+        if (ctx.debug() >= 2) {
+            std::cerr << "EncoderLayer[" << layer_id
+                      << "]::forward(), last layer, switch back device to " << output_dev
+                      << std::endl;
+        }
+        tensor = *ctx.identity(&tensor, "EncoderFinalOutput");
+    }
+    return std::move(tensor);
+}
 
 void EncoderLayer::load_state_dict(const core::Context &ctx,
                                    const std::map<std::string, const core::Tensor> &state_dict,
