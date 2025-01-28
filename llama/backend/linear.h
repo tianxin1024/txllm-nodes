@@ -43,6 +43,11 @@ public:
 
     void set_has_bias(bool b = true);
 
+    core::Tensor forward(const core::Context &ctx,
+                         const core::Tensor &x,
+                         bool quant_back = true,
+                         core::Tensor *output = nullptr);
+
 }; // end of class Linear
 
 core::Tensor concat_dim0(const core::Context &ctx, std::vector<core::Tensor *> tensors, bool stack = true);

@@ -46,6 +46,20 @@ public:
 
     virtual ~impl() = default;
 
+    virtual core::Tensor forward(const core::Context &ctx,
+                                 const core::Tensor &inp,           // (batch, len_q, dim_model)
+                                 const core::Tensor &mask,          // (batch, len_q, len_buf)
+                                 const core::Tensor &position_bias, // if relative (batch, num_head, len_q, len_buf) else if rotary (batch, len_q)
+                                 const core::Tensor &seqlens_q,     // (batch)
+                                 const core::Tensor &seqlens_kv,    // (batch)
+                                 const core::Tensor *pask_k,        // (batch, num_head, len_buf, dim_head)
+                                 const core::Tensor *pask_v,        // (batch, num_head, len_buf, dim_head)
+                                 const core::Tensor *block_table,   // (batch, num_head, len_buf, dim_head)
+                                 const core::Tensor *placement) {   // (batch, len_q) int32
+
+        ModelContext *m_ctx = dynamic_cast<ModelContext *>(const_cast<core::Context *>(&ctx));
+    }
+
 }; // end of class EncoderLayer::impl
 
 class EncoderLayer::impl::CohereImpl : public EncoderLayer::impl {
