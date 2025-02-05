@@ -1,6 +1,7 @@
 #include "backend/feedforward.h"
 #include "backend/linear.h"
 #include "backend/utils.h"
+#include "backend/activation_kernel.h"
 #include <bmengine/functions/all.h>
 
 namespace nn {
