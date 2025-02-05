@@ -268,4 +268,11 @@ void Linear::set_has_bias(bool b) {
     pimpl->set_has_bias(b);
 }
 
+core::Tensor Linear::forward(const core::Context &ctx,
+                             const core::Tensor &input,
+                             bool quant_back,
+                             core::Tensor *output) {
+    std::cout << "Linear::forward" << std::endl;
+}
+
 } // namespace nn

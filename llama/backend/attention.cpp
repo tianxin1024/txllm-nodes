@@ -17,6 +17,13 @@ public:
     impl(const impl &) = delete;
     impl(impl &&) = delete;
 
+    virtual core::Tensor dynamic_batch_forward(model::ModelContext &ctx,
+                                               const core::Tensor &hidden_q,
+                                               const core::Tensor &position_or_bias,
+                                               core::Tensor *output) {
+        throw std::runtime_error("Unsupported");
+    }
+
     virtual void on_load(const core::Context &ctx) {
     }
 }; // end of class Attention::impl
@@ -122,6 +129,13 @@ Attention::Attention(const core::Context &ctx,
 }
 
 Attention::~Attention() = default;
+
+core::Tensor Attention::dyn_rag_forward(model::ModelContext &ctx,
+                                        const core::Tensor &inp,      // (grouped_len_q, dim_model)
+                                        const core::Tensor &position, // (grouped_len_q)
+                                        core::Tensor *output) {
+    return pimpl->dynamic_batch_forward(ctx, inp, position, output);
+}
 
 void Attention::load_state_dict(const core::Context &ctx,
                                 const std::map<std::string, const core::Tensor> &state_dict,

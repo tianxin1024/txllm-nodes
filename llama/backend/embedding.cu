@@ -1,6 +1,7 @@
 #include "backend/embedding.h"
 #include "backend/utils.h"
 #include <bmengine/functions/init.h>
+#include <bmengine/functions/gemm.h>
 
 namespace nn {
 
@@ -19,6 +20,14 @@ public:
     virtual void set_logit_scale(float s) {
         logit_scale = s;
     }
+
+    virtual core::Tensor forward(const core::Context &ctx,
+                                 const core::Tensor &ids // (seq_len)
+                                 ) = 0;
+
+    virtual core::Tensor projection(const core::Context &ctx,
+                                    const core::Tensor &input // (seq_len, dim_model)
+                                    ) = 0;
 
 }; // end of class RawEmbedding
 
@@ -51,6 +60,28 @@ public:
     }
     void set_scale_factor(float b) {
         scale_factor = b;
+    }
+
+    core::Tensor forward(const core::Context &ctx,
+                         const core::Tensor &ids) {
+        BM_ASSERT(ids.dtype() == core::DataType::kInt32, "ids dtype mismatch");
+        BM_ASSERT(ids.ndim() == 1 || ids.ndim() == 2, "ids must be 1d or 2d");
+
+        auto out_shape = ids.shape();
+        // TODO tianx doing
+    }
+
+    core::Tensor projection(const core::Context &ctx,
+                            const core::Tensor &input) {
+        functions::Gemm local_gemm(ctx, dtype, false, true, scale_factor * logit_scale);
+        if (ctx.high_precision() >= 1) {
+            local_gemm.set_compute_type(CUBLAS_COMPUTE_32F);
+        }
+        auto logits = local_gemm.forward(ctx,
+                                         input, // (seq_len, dim_model)
+                                         weight // (vocab_size, dim_model)T
+        );                                      // (seq_len, vocab_size)
+        return logits;
     }
 
 }; // end of class RawEmbedding::impl::NormalImpl
@@ -112,6 +143,11 @@ void RawEmbedding::set_scale_factor(float b) {
 
 void RawEmbedding::set_logit_scale(float b) {
     pimpl->set_logit_scale(b);
+}
+
+core::Tensor RawEmbedding::forward(const core::Context &ctx,
+                                   const core::Tensor &input) { // (seq_len, dim_model)
+    return pimpl->projection(ctx, input);
 }
 
 void RawEmbedding::load_state_dict(const core::Context &ctx,
