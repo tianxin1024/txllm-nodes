@@ -41,6 +41,10 @@ private:
     AddressVector get_buf_addresses(bool is_k, BufPtr buf_ptr) {
     }
 
+    bool has_v() const {
+        return config_v_.dim_head > 0;
+    }
+
 public:
     RagBufferContext(KVCacheConfig config_k, KVCacheConfig config_v) :
         config_k_(config_k), config_v_(config_v) {
@@ -58,7 +62,16 @@ public:
             }
             std::cout << "set_buffer_addr::buf_k_addresses: " << buf_k_addresses.shape() << std::endl;
         }
+        if (active_batch() > 0 && has_v()) {
+            h_buf_v_addresses = get_buf_addresses(BUF_V, &TransformerBuffer::get_layer);
+            buf_v_addresses = ctx.tensor_of(h_buf_v_addresses, {num_layers, active_batch()});
+            if (config_v_.is_quant()) {
+                h_scale_v_addresses = get_buf_addresses(BUF_V, &TransformerBuffer::get_scale);
+                scale_v_address = ctx.tensor_of(h_scale_v_addresses, {num_layers, active_batch()});
+            }
+        }
     }
+
 }; // end of struct RagBufferContext
 
 } // namespace model
