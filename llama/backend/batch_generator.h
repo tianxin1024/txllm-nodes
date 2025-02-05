@@ -7,6 +7,7 @@
 #include <condition_variable>
 #include <bmengine/core/core.h>
 #include "backend/dyn_batch_context.h"
+#include "backend/rag_buffer_context.h"
 #include "backend/model.h"
 #include "backend/generator.h"
 #include "backend/utils.h"

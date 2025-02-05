@@ -1,6 +1,5 @@
 #include "backend/batch_generator.h"
 #include "backend/model_context.h"
-#include "backend/model_context.h"
 #include "backend/beam_result_manager.h"
 #include "backend/beam_buffer_manager.h"
 #include "backend/dyn_batch_context.h"
@@ -22,6 +21,8 @@ using generator::BeamHypothesis;
 using generator::SearchResult;
 using generator::SearchResults;
 using bmengine::core::Tensor;
+
+using model::RagBufferContext;
 
 using utils::Matrix2D;
 typedef utils::Matrix2D<int32_t> Mat2DInt;
@@ -560,8 +561,9 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
         Tensor group_position = concat_tensor(ctx1, dyn_ctx->e_position, dyn_ctx->s_position, 0);
 
         ctx1.rag_buffer()->skip_last = in_chunking();
-        // ctx1.rag_buffer()->set_buffer_addr(ctx1);
+        ctx1.rag_buffer()->set_buffer_addr(ctx1);
 
+        std::cout << ">>>>>>>>>>>>>>>>>>>> current line >>>>>>>>>>>>>>>>>>" << std::endl;
         Tensor input_embeddings;
         Tensor &task0_emb = tasks[0]->input_embeddings;
         if (!task0_emb.empty() && !dyn_ctx->e_token.empty()) {
@@ -581,7 +583,29 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
                                      ctx1.dyn_batch()->s_placement,
                                      input_embeddings,
                                      false);
+        BM_ASSERT_EQ(hidden_g.size(0), group_token.size(0), "encode result dim mismatch");
+
+        if (dyn_ctx->e_token.numel() == group_token.size(0)) {
+            // Only chunking. no search tokens. Keep logits_all as empty Tensor()
+            BM_ASSERT(in_chunking(), "");
+        } else {
+            // cut out encoding
+            Tensor hidden_search = hidden_g.slice_dim0(dyn_ctx->e_token.numel(), group_token.size(0));
+            // Tensor logits = md->get_logits(ctx1, hidden_search, true);
+
+            // assign result in rank 0
+            // if (i == 0) ret_logits = logits;
+        }
+
+        ctx1.clear_identity_cache();
+        BM_CUDART_ASSERT(cudaStreamSynchronize(ctx1.current_stream()->ptr));
     };
+
+    std::cout << "join_forward: " << logger::get_time_us() - ts0 << std::endl;
+
+    peer_run(peer_fn, true); // join_forward
+
+    return ret_logits;
 }
 
 template <typename TokenT, typename ResultT>
@@ -673,6 +697,7 @@ void BatchGenerator::run() {
         // context must create and destroy in the same thread
         model::ModelContext ctx = model::ModelContext::create(
             *engine_, *model_, config, par_models_.empty() ? -1 : 0, !par_models_.empty());
+        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> BatchGenerator run() \n";
         if (llama_model()) {
             SearcherImplV1<int, int>(ctx, config, this).batch_search();
         } else if (!model_) {
@@ -680,6 +705,7 @@ void BatchGenerator::run() {
         } else {
             throw std::invalid_argument(std::string("Unknown model:") + model_->layer_type());
         }
+        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> BatchGenerator end() \n";
         Lock lock(mutex_);
         stopped_ = true;
         stop_cond_.notify_one();

@@ -270,11 +270,12 @@ class DynamicBatchGenerator:
                  block: bool = True,
                  prepend_input: bool = False,
                  timeout: float = 0):
-        print("generate >>>>>>>>>>>>>>>>>>>>>>>>>>>.")
         c_task, _ = self._process_inputs(data, arg)
         print(c_task)
 
         req_result = self.generate_c(c_task, arg, block, timeout=timeout)
+        print("====" * 20)
+        print(req_result)
 
 
     def generate_c(self, 
@@ -302,6 +303,7 @@ class DynamicBatchGenerator:
             try:
                 print(">>>  run -------------------------------")
                 self._c_generator.run()
+                print(">>>  run end -------------------------------")
             except Exception as e:
                 if self._do_verify:
                     print("Verify max_token failed! please adjust reserved_work_mem_mb to a bigger value.")
@@ -320,7 +322,7 @@ class DynamicBatchGenerator:
             self._thread.join()
 
     def __enter__(self):
-        # self.start()
+        self.start()
         return self
 
     def __exit__(self, *args):

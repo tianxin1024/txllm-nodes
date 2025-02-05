@@ -3,9 +3,8 @@
 #include <bmengine/core/core.h>
 #include "backend/model.h"
 #include "backend/buffer_context.h"
-#include "backend/dyn_batch_context.h"
-#include "backend/rag_buffer_context.h"
-#include "backend/dyn_batch_context.h"
+#include "backend/transformer_buffer.h"
+// #include "backend/dyn_batch_context.h"
 
 #include <queue>
 
@@ -18,6 +17,7 @@ class ModelBase;
 struct DynBatchConfig;
 struct DynBatchContext;
 class ModelContext;
+class RagBufferContext;
 
 class HostAllReducer {
 public:
@@ -102,7 +102,7 @@ public:
     HostAllReducer *create_host_reducer();
     void set_host_reducer(std::shared_ptr<HostAllReducer> reducer);
 
-    void set_current_layer(int i) {
+    void set_current_layer(int i) override {
         Context::set_current_layer(i);
         layer_cache_.clear();
     }
