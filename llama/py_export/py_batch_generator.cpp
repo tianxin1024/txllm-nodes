@@ -17,10 +17,6 @@ public:
     generator::SearchResults results;
     bool bee_answer_multi_span;
 
-    // static std::shared_ptr<PySearchTask> create(py::object input_tokens_or_str) {
-    //     std::cout << ">>>>>>>>>>>>>>> PySearchTask create" << std::endl;
-    // }
-
     static std::shared_ptr<PySearchTask> create(py::object input_tokens_or_str,
                                                 int beam_size,
                                                 int max_length,

@@ -23,6 +23,7 @@ def main():
         "dim_head": 128,       # 注意力头维度
         "dim_ff": 5632,        # 前馈网络维度
         "vocab_size": 32000,   # 词汇表大小
+        "model_type": 'llama',
         "eps": 1e-5,           # 层归一化epsilon
     }
 

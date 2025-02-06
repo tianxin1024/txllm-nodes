@@ -279,6 +279,7 @@ public:
         ctx(ctx),
         config(config),
         searcher(searcher),
+        tasks(max_batch),
         topk_all(ctx),
         topk(max_batch),
         result_mgr(max_batch, BeamSearchResultManager(0)),
@@ -291,6 +292,8 @@ public:
         beam_size(max_beam_size) {
         // debug_level = utils::get_int_env("DYN_BATCH_DEBUG", utils::get_int_env("BM_DEBUG_LEVEL"));
         debug_level = utils::get_int_env("DYN_BATCH_DEBUG");
+        std::cout << ">>>>>>>>>>>> SearcherImplV1 instroust tasks[0] : " << tasks[0] << "tasks.addr" << &tasks[0]
+                  << "max_batch: " << max_batch << std::endl;
         if (debug_level) {
             std::cout << "LWP " << _get_tid() << " DynBatch-Main\n";
         }
@@ -466,6 +469,8 @@ public:
     void init_slot(len_t b, SearchTask task) {
         max_batch_active = std::max(b + 1, max_batch_active);
 
+        std::cout << "00000000000000000000000000000000000000000000" << std::endl;
+
         // tasks[b] = task;
         // std::cout << "task: b=" << b << ", random=" << task->is_random() << ", seed=" << task->seed << std::endl;
 
@@ -528,6 +533,8 @@ void SearcherImplV1<int, int>::fill_encode_input(std::vector<SearchTask> &new_ta
         }
         v_batch[i] = b;
     }
+
+    std::cout << "9999999999999999999999999999999999999999999999" << std::endl;
 }
 
 template <>
@@ -563,15 +570,20 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
         ctx1.rag_buffer()->skip_last = in_chunking();
         ctx1.rag_buffer()->set_buffer_addr(ctx1);
 
-        std::cout << ">>>>>>>>>>>>>>>>>>>> current line >>>>>>>>>>>>>>>>>>" << std::endl;
         Tensor input_embeddings;
         Tensor &task0_emb = tasks[0]->input_embeddings;
-        if (!task0_emb.empty() && !dyn_ctx->e_token.empty()) {
+        // TODO task0_emb.empty() 内存访问不到
+        // if (!task0_emb.empty() && !dyn_ctx->e_token.empty()) {
+        std::cout << "dyn_ctx->s_token.numel(): " << dyn_ctx->s_token.numel() << std::endl;
+        if (!dyn_ctx->e_token.empty()) {
+            std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> tianx >>>>>>>>>>>>>>>>" << std::endl;
             BM_ASSERT_EQ(1, dyn_ctx->s_token.numel(), "Feed embedding decode tasks[0] only");
             BM_ASSERT_EQ(group_token.size(0), task0_emb.size(0), "Feed embedding decode tasks[0] only");
             input_embeddings = ctx1.tensor(task0_emb.shape(), task0_emb.dtype());
             ctx1.assign_or_copy(&input_embeddings, &task0_emb);
         }
+
+        std::cout << "input_embeddings: " << input_embeddings << std::endl;
 
         auto md = dynamic_cast<model::LLaMALike *>(searcher->par_models_[i]);
         Tensor hidden_g = md->encode(ctx1,
@@ -583,6 +595,7 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
                                      ctx1.dyn_batch()->s_placement,
                                      input_embeddings,
                                      false);
+        std::cout << ">>>>>>>>>>>>>>>>>>>> current line >>>>>>>>>>>>>>>>>>" << std::endl;
         BM_ASSERT_EQ(hidden_g.size(0), group_token.size(0), "encode result dim mismatch");
 
         if (dyn_ctx->e_token.numel() == group_token.size(0)) {
@@ -659,6 +672,8 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
                       << ", active_count=" << active_count << std::endl;
         }
         bool feed_input_embedding = !new_tasks.empty() && !new_tasks[0]->input_embeddings.empty();
+        std::cout << ">>>>>>>>>>>>>> tasks[0]: " << tasks[0] << std::endl
+                  << std::endl;
         if (feed_input_embedding && tasks[0]) {
             // int b = assign_free_slot(tasks[0]);
             // if (debug_level) std::cout << "Move task 0 to " << b << std::endl;
