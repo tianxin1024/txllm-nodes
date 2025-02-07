@@ -38,8 +38,17 @@ struct SearchTask_ {
     utils::TSQueue<generator::SearchResults> res_queue{INT_MAX};
     std::function<void(const generator::SearchResults &results)> callback;
     volatile bool canceled{false};
+    long begin_ts{0};
 
     bmengine::core::Tensor input_embeddings; // passed-in embeddings of 'PROMPT', device=CPU
+
+public:
+    size_t input_length() const {
+        return input_tokens.size();
+    }
+    size_t full_length() const {
+        return input_tokens.size() + size_t(beam_size * max_length);
+    }
 
 }; // end of struct SearchTask_
 
@@ -56,6 +65,7 @@ class TaskQueue {
 public:
     explicit TaskQueue(int max_size);
 
+    std::vector<SearchTask> pop_multi(int limit, bool wait, int require, int max_token, bool pre_alloc);
     void stop();
     size_t size();
 

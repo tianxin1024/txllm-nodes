@@ -247,6 +247,7 @@ class DynamicBatchGenerator:
 
 
     def _process_inputs(self, data: Union[str, dict, List[dict]], arg: GeneratorArg, stream=0):
+        print("data: .>>>>>>>>>>>>", data)
         t = self.model.process_inputs(data)
         if t is not None:
             # multi-modal model, feed extra fields
@@ -270,8 +271,9 @@ class DynamicBatchGenerator:
                  block: bool = True,
                  prepend_input: bool = False,
                  timeout: float = 0):
+        print("data>>>>>>>>>>> : ", data, "arg: ", arg)
         c_task, _ = self._process_inputs(data, arg)
-        print(c_task)
+        print(")))))))))))))))))))))) c_tast", c_task)
 
         req_result = self.generate_c(c_task, arg, block, timeout=timeout)
         print("====" * 20)

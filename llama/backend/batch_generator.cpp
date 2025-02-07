@@ -33,8 +33,45 @@ typedef unsigned int len_t;
 template <class T>
 using RagVector = std::vector<std::vector<T>>; // sub-vector has different size.
 
+len_t round_up_len(len_t len, len_t d = 32) {
+    return (len + d - 1) / d * d;
+}
+
 TaskQueue::TaskQueue(int max_size) :
     max_size_(max_size) {
+}
+
+std::vector<SearchTask> TaskQueue::pop_multi(int limit, bool wait, int require, int max_token, bool pre_alloc) {
+    std::vector<SearchTask> tasks;
+    int total_token_len = 0;
+    {
+        Lock lock(mutex_);
+        while (wait && !stopping_ && queue_.size() < require) {
+            can_pop_cond_.wait(lock);
+            if (!queue_.empty() && queue_.front()->canceled) {
+                queue_.pop(); // Drop canceled task
+                continue;
+            }
+        }
+        while (!queue_.empty() && tasks.size() < limit) {
+            total_token_len += pre_alloc ? round_up_len(queue_.front()->full_length() + 2, 32) : queue_.front()->input_length();
+            if (total_token_len > max_token) {
+                std::cout << "#### max_token: " << max_token
+                          << ", input_length=" << queue_.front()->input_length()
+                          << ", beam_size=" << queue_.front()->beam_size
+                          << ", max_len=" << queue_.front()->max_length
+                          << ", full_length=" << queue_.front()->full_length()
+                          << std::endl;
+                break;
+            }
+            tasks.push_back(queue_.front());
+            queue_.pop();
+        }
+    }
+    if (!tasks.empty()) {
+        can_push_cond_.notify_one();
+    }
+    return tasks;
 }
 
 void TaskQueue::stop() {
@@ -563,6 +600,8 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
     auto peer_fn = [&](int i) {
         auto &ctx1 = *peer_ctx[i];
         model::DynBatchContext *dyn_ctx = ctx1.dyn_batch().get();
+        std::cout << ">>>>>>>>>>> input e token: " << dyn_ctx->e_token.numel() << std::endl;
+        std::cout << ">>>>>>>>>>> input s token: " << dyn_ctx->s_token.numel() << std::endl;
         // join encode and search input together to call model->encode()
         Tensor group_token = concat_tensor(ctx1, dyn_ctx->e_token, dyn_ctx->s_token, 0);
         Tensor group_position = concat_tensor(ctx1, dyn_ctx->e_position, dyn_ctx->s_position, 0);
@@ -583,7 +622,7 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
             ctx1.assign_or_copy(&input_embeddings, &task0_emb);
         }
 
-        std::cout << "input_embeddings: " << input_embeddings << std::endl;
+        // std::cout << "input_embeddings: " << input_embeddings << std::endl;
 
         auto md = dynamic_cast<model::LLaMALike *>(searcher->par_models_[i]);
         Tensor hidden_g = md->encode(ctx1,
@@ -648,18 +687,18 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
                 ctx.use_cache_alloc(false);
             }
             int limit = 1; // dual_stream ? 1 : max_batch - active_count
-            // new_tasks = searcher->queue_.pop_multi(
-            //     limit, active_count == 0, 1, max_total_token, pre_alloc);
-            // for (auto task : new_tasks) {
-            //     task->begin_ts = logger::get_time_us();
-            // }
+            new_tasks = searcher->queue_.pop_multi(
+                limit, active_count == 0, 1, max_total_token, pre_alloc);
+            for (auto task : new_tasks) {
+                task->begin_ts = logger::get_time_us();
+            }
         }
 
-        if (searcher->stopping_) {
-            break;
-        } else if (max_batch_active == 0) {
-            // BM_ASSERT(!new_tasks.empty(), "pop_multi() return 0 tasks.");
-        }
+        // if (searcher->stopping_) {
+        //     break;
+        // } else if (max_batch_active == 0) {
+        //     // BM_ASSERT(!new_tasks.empty(), "pop_multi() return 0 tasks.");
+        // }
         auto dev = ctx.with_device(0);
 
         // resize fields
@@ -701,8 +740,6 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
         /** -------------------------- Get Search Logits --------------------------- **/
         Tensor hidden;
         Tensor logits_all = join_forward(&hidden);
-
-        exit(0);
     }
 }
 
