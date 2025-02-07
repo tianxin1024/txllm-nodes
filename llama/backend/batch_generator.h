@@ -49,6 +49,9 @@ public:
     size_t full_length() const {
         return input_tokens.size() + size_t(beam_size * max_length);
     }
+    bool is_random() const {
+        return top_p < 1. or top_k > 0;
+    }
 
 }; // end of struct SearchTask_
 
@@ -64,6 +67,8 @@ class TaskQueue {
 
 public:
     explicit TaskQueue(int max_size);
+
+    bool push(SearchTask task, bool wait, bool notify = true);
 
     std::vector<SearchTask> pop_multi(int limit, bool wait, int require, int max_token, bool pre_alloc);
     void stop();
@@ -102,6 +107,12 @@ public:
 
     model::LLaMALike *llama_model() {
         return dynamic_cast<model::LLaMALike *>(model_);
+    }
+
+    bool submit(SearchTask task, bool wait, bool notify = true);
+
+    int queue_size() {
+        return queue_.size();
     }
 
     void start();

@@ -62,6 +62,10 @@ KVCacheConfig ModelContext::get_kv_cache_config() {
     return cache_config;
 }
 
+void ModelContext::resize_task_buf(int b, size_t new_length) {
+    rag_buffer()->resize_task_buf(*this, b, new_length);
+}
+
 // for batch_generator
 ModelContext ModelContext::create(core::Engine &engine,
                                   const ModelBase &md,

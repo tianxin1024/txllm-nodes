@@ -4,11 +4,15 @@
 #include "py_export/bind.h"
 #include "backend/batch_generator.h"
 #include "py_export/py_model_base.h"
+#include <bmengine/logger/kernel_time_trace.hpp>
+#include <bmengine/logger/std_log_op.hpp>
 
 namespace bind {
 
 using namespace batch_generator;
 using model::DynBatchConfig;
+
+using bmengine::logger::get_time_us;
 
 // class __attribute__ ((visibility("hidden"))) PySearchTask {
 class PySearchTask {
@@ -16,6 +20,8 @@ public:
     SearchTask task_;
     generator::SearchResults results;
     bool bee_answer_multi_span;
+
+    long enqueue_ts;
 
     static std::shared_ptr<PySearchTask> create(py::object input_tokens_or_str,
                                                 int beam_size,
@@ -96,6 +102,25 @@ public:
     void stop() {
         searcher_->stop();
     }
+
+    int queue_size() {
+        return searcher_->queue_size();
+    }
+
+#pragma GCC push_options
+#pragma GCC optimize("O0")
+    bool submit(py::object py_task, bool wait) {
+        PySearchTask &task = py::cast<PySearchTask &>(py_task);
+        auto t = task.task_;
+        {
+            py::gil_scoped_release release;
+            if (!searcher_->submit(t, wait))
+                return false;
+        }
+        task.enqueue_ts = get_time_us();
+        return true;
+    }
+
 }; // end of class PyBatchGenerator
 
 // for Stream API
@@ -107,6 +132,7 @@ public:
 //  out_tokens: CpmBee: str; LLaMA: list[int]
 py::object PySearchTask::get_result(float timeout) {
     generator::SearchResults results;
+    std::cout << ">>>>>>>>>>>>>>>>> PySearchTask get_result >>>>>>>>>>>>>>>>>>> " << std::endl;
     {
         py::gil_scoped_release release;
         // results = std::move(pop_res(timeout));
@@ -143,7 +169,9 @@ void define_dynamic_batch(py::module_ &handle) {
 
     py::class_<PyBatchGenerator, std::shared_ptr<PyBatchGenerator>>(handle, "BatchGenerator")
         .def(py::init(&PyBatchGenerator::create))
-        .def("run", &PyBatchGenerator::run);
+        .def("run", &PyBatchGenerator::run)
+        .def("queue_size", &PyBatchGenerator::queue_size)
+        .def("submit", &PyBatchGenerator::submit);
 }
 
 } // namespace bind

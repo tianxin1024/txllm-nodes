@@ -38,6 +38,7 @@ public:
 
     virtual const core::Tensor &operator[](int i) const = 0;
     virtual core::Tensor &operator[](int i) = 0;
+    virtual void resize(const core::Context &ctx, size_t new_length) = 0;
 
     bool is_BSHD() const {
         return BSHD;

@@ -41,6 +41,21 @@ TaskQueue::TaskQueue(int max_size) :
     max_size_(max_size) {
 }
 
+bool TaskQueue::push(SearchTask task, bool wait, bool notify) {
+    Lock lock(mutex_);
+    if (!wait && queue_.size() >= max_size_) {
+        return false;
+    }
+    while (queue_.size() >= max_size_) {
+        can_push_cond_.wait(lock);
+    }
+    queue_.push(task);
+    if (notify) {
+        can_pop_cond_.notify_one();
+    }
+    return true;
+}
+
 std::vector<SearchTask> TaskQueue::pop_multi(int limit, bool wait, int require, int max_token, bool pre_alloc) {
     std::vector<SearchTask> tasks;
     int total_token_len = 0;
@@ -97,6 +112,27 @@ BatchGenerator::~BatchGenerator() {
     if (!stopping_) {
         stop();
     }
+}
+
+bool BatchGenerator::submit(SearchTask task, bool wait, bool notify) {
+    if (task->input_tokens.size() <= 1) {
+        throw std::invalid_argument("Empty input");
+    }
+    int max_input_token = config.max_total_token - task->beam_size;
+    if (task->input_length() > max_input_token) {
+        throw std::invalid_argument(
+            "Input tokens are too long: " + std::to_string(task->input_length()));
+    }
+    if (task->beam_size > config.max_beam_size || task->beam_size < 1) {
+        throw std::invalid_argument("Invalid beam size: " + std::to_string(task->beam_size));
+    }
+    if (task->is_random()) {
+        task->beam_size = task->num_results;
+    }
+    if (task->is_random() && task->seed == 0) {
+        task->seed = rand();
+    }
+    return queue_.push(task, wait, notify);
 }
 
 using namespace std::chrono_literals;
@@ -503,32 +539,49 @@ public:
         return -1;
     }
 
+    void resize_task_buf(len_t b, len_t new_len_buf, bool init = false) {
+        if (pre_alloc && !init) {
+            len_t full_len = ctx.rag_buffer()->get_buf_len(b);
+            BM_ASSERT_LE(new_len_buf, full_len, "");
+            return;
+        }
+        auto fn = [=](int i) {
+            if (dual_stream) {
+                peer_ctx[i]->use_cache_alloc(true);
+            }
+            peer_ctx[i]->resize_task_buf(b, new_len_buf);
+            if (dual_stream) {
+                peer_ctx[i]->use_cache_alloc(false);
+            }
+        };
+        peer_run(fn, false); // resize_task_buf
+    }
+
     void init_slot(len_t b, SearchTask task) {
         max_batch_active = std::max(b + 1, max_batch_active);
 
-        std::cout << "00000000000000000000000000000000000000000000" << std::endl;
+        tasks[b] = task;
+        std::cout << "task: b=" << b << ", random=" << task->is_random() << ", seed=" << task->seed << std::endl;
 
-        // tasks[b] = task;
-        // std::cout << "task: b=" << b << ", random=" << task->is_random() << ", seed=" << task->seed << std::endl;
-
-        // if (!topk[b]) {
-        //     topk[b].reset(new TopKWrapper(ctx));
-        // }
-        // topk[b]->set_seed(task->diverse || task->is_random(), task->seed);
-        // result_mgr[b].reset(std::max(task->beam_size, task->num_results));
-        // if (!config.rag_buffer) {
-        //     bm[b].reset(len_buf); // global len_buf
-        // } else {
-        //     // individual len_buf
-        //     len_t new_len_buf = round_up_len(task->input_length() + 2, 32);
-        //     bm[b].reset(new_len_buf);
-        //     if (pre_alloc) {
-        //         len_t full_len_buf = round_up_len(task->full_length() + 2, 32);
-        //         resize_task_buf(b, full_len_buf, true);
-        //     } else {
-        //         resize_task_buf(b, new_len_buf); // alloc new
-        //     }
-        // }
+        if (!topk[b]) {
+            topk[b].reset(new TopKWrapper(ctx));
+        }
+        topk[b]->set_seed(task->diverse || task->is_random(), task->seed);
+        result_mgr[b].reset(std::max(task->beam_size, task->num_results));
+        if (!config.rag_buffer) {
+            bm[b].reset(len_buf); // global len_buf
+        } else {
+            // individual len_buf
+            len_t new_len_buf = round_up_len(task->input_length() + 2, 32);
+            bm[b].reset(new_len_buf);
+            if (pre_alloc) {
+                len_t full_len_buf = round_up_len(task->full_length() + 2, 32);
+                resize_task_buf(b, full_len_buf, true);
+            } else {
+                std::cout << "00000000000000000000000000000000000000000000" << std::endl;
+                resize_task_buf(b, new_len_buf); // alloc new
+            }
+        }
     }
 
     len_t get_batch_active() {
@@ -556,6 +609,7 @@ void SearcherImplV1<int, int>::fill_encode_input(std::vector<SearchTask> &new_ta
     RagVector<int32_t> h_position;
     RagVector<int8_t> h_mask;
 
+    std::cout << ">>>>>>>>>> new_tasks.size: " << new_tasks.size() << std::endl;
     for (size_t i = 0; i < new_tasks.size(); ++i) {
         auto &task = new_tasks[i];
         auto &tokens = task->input_tokens;
@@ -714,6 +768,7 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
         std::cout << ">>>>>>>>>>>>>> tasks[0]: " << tasks[0] << std::endl
                   << std::endl;
         if (feed_input_embedding && tasks[0]) {
+            std::cout << "=================================== current ++++++++++++++++++++++" << std::endl;
             // int b = assign_free_slot(tasks[0]);
             // if (debug_level) std::cout << "Move task 0 to " << b << std::endl;
             // move_task(b, 0);
@@ -722,7 +777,6 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
 
         /** -------------------------- Fill Encode Input -------------------------- **/
         if (!new_tasks.empty() || in_chunking()) {
-            std::cout << "<<<<<<<<<<<<<<<<<<<<< current new_tasks" << std::endl;
             fill_encode_input(new_tasks); // update max_batch_active in init_slot()
             new_tasks.clear();
         } else {

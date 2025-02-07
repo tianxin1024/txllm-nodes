@@ -39,6 +39,7 @@ private:
     }
 
     AddressVector get_buf_addresses(bool is_k, BufPtr buf_ptr) {
+        std::cout << ">>>>>> AddressVector get_buf_addresses " << std::endl;
     }
 
     bool has_v() const {
@@ -50,6 +51,23 @@ public:
         config_k_(config_k), config_v_(config_v) {
         BM_ASSERT_EQ(config_k.num_layers, config_v.num_layers, "num_layers mismatch");
         this->num_layers = config_k.num_layers;
+    }
+
+    void resize_task_buf(const core::Context &ctx, int b, size_t new_length) {
+        if (buf_k_.size() < b + 1) {
+            buf_k_.resize(b + 1);
+            buf_v_.resize(b + 1);
+        }
+        if (!buf_k_[b]) {
+            buf_k_[b] = std::make_unique<TransformerBuffer>(config_k_);
+            if (has_v()) {
+                buf_v_[b] = std::make_unique<TransformerBuffer>(config_v_);
+            }
+        }
+        buf_k_[b]->resize(ctx, new_length);
+        if (has_v()) {
+            buf_v_[b]->resize(ctx, new_length);
+        }
     }
 
     void set_buffer_addr(ModelContext &ctx) {
@@ -70,6 +88,14 @@ public:
                 scale_v_address = ctx.tensor_of(h_scale_v_addresses, {num_layers, active_batch()});
             }
         }
+    }
+
+    size_t get_buf_len(size_t b) {
+        if (b < buf_k_.size()) {
+            auto &t = (*buf_k_[b])[0];
+            return t.numel() ? t.size(buf_k_[b]->is_BSHD() ? -3 : -2) : 0;
+        }
+        return 0;
     }
 
 }; // end of struct RagBufferContext

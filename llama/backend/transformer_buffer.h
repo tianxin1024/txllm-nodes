@@ -16,6 +16,9 @@ class TransformerBuffer : public KVCache {
     bool is_dyn_batch() {
         return batch_size == -1;
     }
+    void resize_dyn_batch(const core::Context &ctx, size_t new_length);
+    void resize_multi_layer(const core::Context &ctx, size_t new_length, int begin, int end, int dim);
+    void resize_scale(const core::Context &ctx, size_t new_length, int begin, int end, int dim);
 
 public:
     TransformerBuffer(int batch_size,
@@ -35,8 +38,12 @@ public:
         return this->operator[](i);
     }
 
+    void resize(const core::Context &ctx, size_t new_length) override;
+
     const core::Tensor &get_scale(int i) const;
 
 }; // end of class TransformerBuffer
+
+core::Tensor resize_buffer(const core::Context &ctx, const core::Tensor &buffer, int dim, size_t new_length);
 
 } // namespace kvcache

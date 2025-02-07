@@ -64,6 +64,14 @@ public:
         return *this;
     }
 
+    void reset(int new_len_buf) {
+        len_buf = new_len_buf;
+        buf_local.clear();
+        buf_local.resize(len_buf);
+        unused_buffer_pos.clear();
+        last_input_buf_pos = -1;
+    }
+
 }; // end of class BeamBufferManager
 
 } // namespace beam_utility

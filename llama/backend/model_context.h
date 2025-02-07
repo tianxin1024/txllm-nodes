@@ -82,6 +82,9 @@ public:
         return buf_ctx_ == nullptr ? nullptr : buf_ctx_->block_table(layer);
     }
 
+    // For ragged buffer: each task has a different buffer length.
+    void resize_task_buf(int b, size_t new_length);
+
     static ModelContext create(core::Engine &engine,
                                const ModelBase &md,
                                const DynBatchConfig &config,

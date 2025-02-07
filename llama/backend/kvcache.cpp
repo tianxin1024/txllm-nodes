@@ -11,6 +11,7 @@ KVCache::KVCache(int batch_size,
                  bool BSHD) :
     batch_size(batch_size),
     num_layers(num_layers),
+    num_heads(num_heads),
     dim_head(dim_head),
     dtype(dtype),
     parallel(parallel),

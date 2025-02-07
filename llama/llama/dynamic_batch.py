@@ -203,6 +203,7 @@ class DynamicBatchGenerator:
         max_token = model_config.get("max_token", 4096)
 
         self._c_generator = llm_nodes.BatchGenerator(self.config.c_config(), self.c_model)
+        self.print_queue_threshold = int(os.environ.get("print_queue_threshold", 0))
 
         self._thread = None
         self._do_verify = int(os.environ.get("VERIFY_MAX_TOKEN", 1)) > 0
@@ -232,6 +233,11 @@ class DynamicBatchGenerator:
                                     bool(arg.bee_answer_multi_span),
                                     arg.top_logprobs,
                                     int(stream))
+
+    def check_queue_busy(self):
+        queue_size = self._c_generator.queue_size()
+        if queue_size > self.print_queue_threshold:
+            logging.warning(f"High pressure: active_size={self._c_generator.active_size()} queue_size={queue_size}")
 
 
     def _encode(self, data: Union[str, List[dict]]) -> List[int]:
@@ -271,10 +277,7 @@ class DynamicBatchGenerator:
                  block: bool = True,
                  prepend_input: bool = False,
                  timeout: float = 0):
-        print("data>>>>>>>>>>> : ", data, "arg: ", arg)
         c_task, _ = self._process_inputs(data, arg)
-        print(")))))))))))))))))))))) c_tast", c_task)
-
         req_result = self.generate_c(c_task, arg, block, timeout=timeout)
         print("====" * 20)
         print(req_result)
@@ -295,7 +298,9 @@ class DynamicBatchGenerator:
         if not self._c_generator.submit(c_task, block):
             raise RuntimeError("Generator is busy")
 
+        print("------------------ generate_c 2 -----------------")
         c_result = c_task.get_result(timeout)
+        print("------------------ generate_c 3 -----------------")
 
         return RequestResult.from_cpp_stream_result(None, c_result, c_task.input_tokens_num())
 

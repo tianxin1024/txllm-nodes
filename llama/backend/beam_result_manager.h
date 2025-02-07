@@ -34,6 +34,19 @@ public:
         cumulative_logprobs.resize(num_results);
     }
 
+    void reset(int new_num_results) {
+        this->num_results = new_num_results;
+        current_results = 0;
+        min_score = 1e10;
+        result_list.clear();
+        result_score.clear();
+        top_logprobs.resize(num_results);
+        logprobs.resize(num_results);
+        cumulative_logprobs.resize(num_results);
+        result_list.resize(num_results);
+        result_score.resize(num_results);
+    }
+
 }; // end of class BeamSearchResultManager
 
 } // namespace generator
