@@ -638,6 +638,43 @@ void SearcherImplV1<int, int>::fill_encode_input(std::vector<SearchTask> &new_ta
             peer_run(fn, true); // prefix_cache[i]->get
             std::cout << "cached_len: " << cached_len << std::endl;
         }
+        len_t token_num = tokens.size() - 1; // Reserve last token for search
+        BM_ASSERT_LT(cached_len, token_num, "");
+        len_t encode_len = token_num - cached_len;
+
+        std::cout << "encode_len : " << encode_len << std::endl;
+
+        bool first_chunk = false;
+        if (!chunking && enabled_chunk_prefill && encode_len > chunk_size) {
+            first_chunk = true;
+            chunking = true;
+            chunking_b = b; // start chunk_prefill
+            chunked = cached_len;
+            std::cout << " Start chunked prefill b=" << b << std::endl;
+        }
+
+        if (!chunking || first_chunk) {
+            std::cout << "Init bm[" << b << "] len=" << token_num << std::endl;
+            bm[b].init(task->input_tokens, int(token_num));
+        }
+        if (chunking) {
+            len_t beam_size1 = calc_max_beam_size(tasks, 0);
+            BM_ASSERT(beam_size1 > 0, "");
+            BM_ASSERT(max_batch_active > 0, "");
+            len_t chunk_size_adj = chunk_size - chunking_b * beam_size1;
+            if (encode_len <= chunk_size_adj) {
+                std::cout << "Done chunking b=" << b << ", len=" << (chunked + encode_len) << std::endl;
+                max_batch_active = chunking_b + 1;
+                chunking_b = -1; // end chunk_prefill
+                chunked = 0;
+                chunking = false;
+            } else {
+                std::cout << "Prefill size=" << chunk_size_adj << " chunk=["
+                          << chunked << ", " << (chunked + chunk_size_adj) << "] of " << tokens.size() << std::endl;
+                encode_len = chunk_size_adj;
+                chunked += chunk_size_adj;
+            }
+        }
     }
 
     std::cout << "9999999999999999999999999999999999999999999999" << std::endl;

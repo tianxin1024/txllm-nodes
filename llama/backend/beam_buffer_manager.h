@@ -48,6 +48,10 @@ public:
     int last_input_buf_pos{-1};
     int mask_stride{-1};
 
+    // flying hypo<->pos mapping, tracked postions are valid till next input.
+    // picked hypo positions are refcount increased, remains are garbage collected.
+    std::vector<int> head_placement_;
+
     explicit BeamBufferManager(int len_buf) :
         buf_local(len_buf), len_buf(len_buf) {
     }
@@ -62,6 +66,19 @@ public:
         last_input_buf_pos = other.last_input_buf_pos;
         other.reset(0);
         return *this;
+    }
+
+    void init(const std::vector<TokenT> &input, int len_input) {
+        // fill inputs
+        for (int i = 0; i < len_input; i++) {
+            buf_local[i] = BeamBufferInfo<TokenT>(input[i], i - 1, 0.0, 1);
+        }
+        last_input_buf_pos = len_input - 1;
+        // unused pos: len_input, len_input+1 ... len_buf-1 in reverse order
+        for (int i = 0; i < len_buf - len_input; i++) {
+            unused_buffer_pos.push_back(len_buf - i - 1);
+        }
+        head_placement_.emplace_back(last_input_buf_pos);
     }
 
     void reset(int new_len_buf) {
