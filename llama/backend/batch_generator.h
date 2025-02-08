@@ -40,6 +40,7 @@ struct SearchTask_ {
     volatile bool canceled{false};
     long begin_ts{0};
 
+    std::vector<int> position_ids;           // passed-in position ids of 'PROMPT'
     bmengine::core::Tensor input_embeddings; // passed-in embeddings of 'PROMPT', device=CPU
 
 public:

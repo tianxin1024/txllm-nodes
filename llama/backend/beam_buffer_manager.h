@@ -89,6 +89,15 @@ public:
         last_input_buf_pos = -1;
     }
 
+    void mask_input(int8_t *mask, int len_input, int stride = -1, int pos = 0) const {
+        stride = stride == -1 ? len_buf : stride;
+        for (size_t i = 0; i < len_input; i++) {
+            for (size_t j = 0; j < stride; j++) {
+                mask[i * stride + j] = (i + pos) < j ? 0 : 1;
+            }
+        }
+    }
+
 }; // end of class BeamBufferManager
 
 } // namespace beam_utility

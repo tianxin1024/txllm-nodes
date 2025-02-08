@@ -293,6 +293,15 @@ static size_t get_kv_buf_bytes(const ModelBase &m, int len, int rep = 1) {
     return size_t(len) * sizeof(half) * buf_size_pt;
 }
 
+template <class T>
+Tensor rag_tensor(ModelContext &ctx, const RagVector<T> &v2d) {
+    std::vector<T> flat;
+    for (const std::vector<T> &v : v2d) {
+        flat.insert(flat.end(), v.begin(), v.end());
+    }
+    return ctx.tensor_of<T>(flat);
+}
+
 template <typename TokenT, typename ResultT>
 class SearcherImplV1 {
     typedef beam_utility::BeamBufferInfo<TokenT> BeamBufferInfo;
@@ -675,7 +684,63 @@ void SearcherImplV1<int, int>::fill_encode_input(std::vector<SearchTask> &new_ta
                 chunked += chunk_size_adj;
             }
         }
+
+        input_lens[i] = encode_len;
+        full_input_lens[i] = token_num;
+        if (chunking)
+            full_input_lens[i] = chunked;
+        len_t len1 = round_up_len(encode_len, 32);
+        buf_lens[i] = (len1 <= len_buf / 2 || (len1 + 256) <= len_buf) ? len1 : len_buf;
+        buf_lens[i] = config.rag_buffer ? bm[b].len_buf : buf_lens[i];
+
+        h_token.emplace_back(encode_len);
+        h_batch.emplace_back(encode_len);
+        h_placement.emplace_back(encode_len);
+        h_position.emplace_back(encode_len);
+
+        for (len_t pos = 0; pos < encode_len; pos++) {
+            h_token[i][pos] = tokens[cached_len + pos];
+            h_batch[i][pos] = b;
+            h_placement[i][pos] = cached_len + pos;
+            h_position[i][pos] = cached_len + pos;
+        }
+        h_mask.emplace_back(encode_len * buf_lens[i]);
+        bm[b].mask_input(&h_mask[i][0], encode_len, buf_lens[i], cached_len);
+        // set last token to search
+        if (!chunking)
+            next_tokens[b].emplace_back(tokens[token_num], bm[b].last_input_buf_pos, 0.0, 1);
     }
+
+    auto set_fn = [&](ModelContext &ctx) {
+        // convert matrices to tensors
+        Tensor e_token = rag_tensor(ctx, h_token);
+        Tensor e_placement = rag_tensor(ctx, h_placement);
+        Tensor e_mask = rag_tensor(ctx, h_mask);
+        Tensor e_position = rag_tensor(ctx, h_position);
+        if (!new_tasks[0]->position_ids.empty()) {
+            const len_t num_ids = new_tasks[0]->position_ids.size();
+            BM_ASSERT_EQ(new_tasks.size(), 1, "multi-task is not supported");
+            BM_ASSERT_EQ(num_ids % new_tasks[0]->input_length(), 0, "position_ids size mismatch");
+            len_t m = num_ids / new_tasks[0]->input_length();
+            e_position = ctx.tensor_of(new_tasks[0]->position_ids);
+            // TODO: support prefix cache
+            BM_ASSERT(!config.enable_prompt_caching, "");
+            e_position = e_position.slice_dim0(0, m * h_position[0].size());
+        }
+
+        if (debug_level > 1 && ctx.rank() == 0) {
+            std::cout << "e_token: " << e_token << std::endl;
+            std::cout << "e_placement: " << e_placement << std::endl;
+            std::cout << "e_position: " << e_position << std::endl;
+            std::cout << "e_mask: " << e_mask << std::endl;
+        }
+
+        ctx.dyn_batch()->set_encode(e_token, Tensor(), e_placement, e_position, e_mask);
+        ctx.dyn_batch()->set_encode_batch(v_batch, rag_tensor(ctx, h_batch));
+        ctx.dyn_batch()->set_encode_len(input_lens, full_input_lens, ctx.tensor_of(input_lens));
+        ctx.dyn_batch()->ev_len_buf = buf_lens;
+    };
+    peer_run([&](int i) { set_fn(*peer_ctx[i]); }, true); // prepare dyn_batch encode
 
     std::cout << "9999999999999999999999999999999999999999999999" << std::endl;
 }
