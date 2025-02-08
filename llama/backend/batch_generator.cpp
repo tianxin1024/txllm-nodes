@@ -4,6 +4,7 @@
 #include "backend/beam_buffer_manager.h"
 #include "backend/dyn_batch_context.h"
 #include "backend/matrix.h"
+#include "backend/prefix_cache.h"
 
 #include <bmengine/core/thread_pool.h>
 #include <bmengine/logger/kernel_time_trace.hpp>
@@ -329,8 +330,11 @@ class SearcherImplV1 {
     int dual_stream{false};
     bool pre_alloc{false};
     int chunking_b{-1}; // index of chunking task, usually the last
+    len_t chunked{0};   // processed chunked tokens
     bool enabled_chunk_prefill;
     len_t chunk_size;
+
+    std::vector<std::shared_ptr<PrefixCache>> prefix_cache;
 
     std::vector<TaskThreadPool *> device_threads;
 
@@ -578,7 +582,6 @@ public:
                 len_t full_len_buf = round_up_len(task->full_length() + 2, 32);
                 resize_task_buf(b, full_len_buf, true);
             } else {
-                std::cout << "00000000000000000000000000000000000000000000" << std::endl;
                 resize_task_buf(b, new_len_buf); // alloc new
             }
         }
@@ -623,6 +626,18 @@ void SearcherImplV1<int, int>::fill_encode_input(std::vector<SearchTask> &new_ta
             init_slot(b, task);
         }
         v_batch[i] = b;
+
+        len_t cached_len = chunked;
+        if (config.enable_prompt_caching && tokens.size() > 10 && chunked == 0) {
+            auto fn = [=, &cached_len](int i) {
+                auto rag_buf = peer_ctx[i]->rag_buffer().get();
+                int len = prefix_cache[i]->get(
+                    *peer_ctx[i], task->input_tokens, {rag_buf->buf_k_[b].get(), rag_buf->buf_v_[b].get()});
+                if (i == 0) cached_len = len;
+            };
+            peer_run(fn, true); // prefix_cache[i]->get
+            std::cout << "cached_len: " << cached_len << std::endl;
+        }
     }
 
     std::cout << "9999999999999999999999999999999999999999999999" << std::endl;

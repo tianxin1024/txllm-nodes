@@ -42,6 +42,8 @@ public:
 
     const core::Tensor &get_scale(int i) const;
 
+    void load_slice(core::Context &ctx, size_t start, size_t len, const core::Tensor &input);
+
 }; // end of class TransformerBuffer
 
 core::Tensor resize_buffer(const core::Context &ctx, const core::Tensor &buffer, int dim, size_t new_length);

@@ -221,4 +221,60 @@ void TransformerBuffer::resize_scale(
     scales_ = all_scale_.chunk();
 }
 
+// (num_layers, copy_len, num_heads) (dim_head)
+template <typename T>
+__global__ void KERNEL_copy_slice_BSHD(const T *src, // (num_layers, src_len, num_heads, dim_head)
+                                       T *dst,       // (num_layers, dst_len, num_heads, dim_head)
+                                       unsigned int src_offset,
+                                       unsigned int src_len,
+                                       unsigned int dst_offset,
+                                       unsigned int dst_len) {
+    unsigned int R = gridDim.z * blockDim.x;                // 合并num_heads和dim_head后的总元素数
+    unsigned int r = blockIdx.z * blockDim.x + threadIdx.x; // 每个线程处理一个(num_heads, dim_head)组合的索引
+    dst[((blockIdx.x * dst_len) + dst_offset + blockIdx.y) * R + r] =
+        src[((blockIdx.x * src_len) + src_offset + blockIdx.y) * R + r];
+}
+
+void TransformerBuffer::load_slice(core::Context &ctx, size_t start, size_t len, const core::Tensor &input) {
+    int dim = BSHD ? -3 : -2;
+    int dim_h = !BSHD ? -3 : -2;
+    BM_ASSERT_EQ(batch_size, -1, "Not a dynamic batch buffer");
+    BM_ASSERT(buffer[0].numel(), "buffer must be resized first");
+    BM_ASSERT_EQ(dim_head % 32, 0, "Wrong dim_head");
+    BM_ASSERT_LE(start + len, buffer[0].size(dim), "out fo range");
+    BM_ASSERT_EQ(input.size(0), num_layers, "Wrong num_layers");
+    BM_ASSERT_EQ(input.size(-1), dim_head, "Wrong dim_head");
+    BM_ASSERT_EQ(input.size(dim), len, "Wrong len");
+    BM_ASSERT_EQ(input.size(dim_h), num_heads, "Wrong num_heads");
+
+    size_t nbytes = buffer[0].nbytes();
+    auto stream = ctx.current_stream()->ptr;
+    for (size_t j = 0; j < num_layers;) {
+        // copy [j, k] continuous chunks
+        size_t k = j + 1;
+        while (k < num_layers && buffer[k - 1].data<char>() + nbytes == buffer[k].data<char>()) {
+            k++;
+        }
+        auto chunk = input.slice_dim0(j, k);
+        std::cout << "multiCopy j=" << j << ", j=" << j << ", k=" << k << std::endl;
+        if (BSHD) {
+            dim3 gridDim(k - j, len, num_heads);
+            BM_DTYPE_DISPATCH(dtype, {
+                KERNEL_copy_slice_BSHD<scalar_t><<<gridDim, dim_head, 0, stream>>>(
+                    chunk.data<scalar_t>(), buffer[j].mutable_data<scalar_t>(),
+                    0, len, start, buffer[j].size(dim));
+            });
+        } else {
+            dim3 gridDim((k - j) * num_heads, len, 1);
+            BM_DTYPE_DISPATCH_FLOAT(dtype, {
+                KERNEL_copy_slice_BSHD<scalar_t><<<gridDim, dim_head, 0, stream>>>(
+                    chunk.data<scalar_t>(), buffer[j].mutable_data<scalar_t>(),
+                    0, len, start, buffer[j].size(dim));
+            });
+        }
+        BM_CUDART_ASSERT(cudaGetLastError());
+        j = k;
+    }
+}
+
 } // namespace kvcache
