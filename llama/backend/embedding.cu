@@ -77,12 +77,14 @@ public:
         if (ctx.high_precision() >= 1) {
             local_gemm.set_compute_type(CUBLAS_COMPUTE_32F);
         }
+        std::cout << "seq_len: " << input.size(0) << " ,  dim_model: " << dim_model << std::endl;
         std::cout << "input: " << input.numel() << std::endl;
         std::cout << "weight: " << weight.numel() << std::endl;
         auto logits = local_gemm.forward(ctx,
                                          input, // (seq_len, dim_model)
                                          weight // (vocab_size, dim_model)T
         );                                      // (seq_len, vocab_size)
+        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>> current tianx >>>>>>>>>>>>>>>" << std::endl;
         return logits;
     }
 

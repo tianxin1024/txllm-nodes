@@ -741,8 +741,6 @@ void SearcherImplV1<int, int>::fill_encode_input(std::vector<SearchTask> &new_ta
         ctx.dyn_batch()->ev_len_buf = buf_lens;
     };
     peer_run([&](int i) { set_fn(*peer_ctx[i]); }, true); // prepare dyn_batch encode
-
-    std::cout << "9999999999999999999999999999999999999999999999" << std::endl;
 }
 
 template <>
@@ -785,15 +783,13 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
         // TODO task0_emb.empty() 内存访问不到
         // if (!task0_emb.empty() && !dyn_ctx->e_token.empty()) {
         std::cout << "dyn_ctx->s_token.numel(): " << dyn_ctx->s_token.numel() << std::endl;
-        if (!dyn_ctx->e_token.empty()) {
+        if (!task0_emb.empty() && !dyn_ctx->e_token.empty()) {
             std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> tianx >>>>>>>>>>>>>>>>" << std::endl;
             BM_ASSERT_EQ(1, dyn_ctx->s_token.numel(), "Feed embedding decode tasks[0] only");
             BM_ASSERT_EQ(group_token.size(0), task0_emb.size(0), "Feed embedding decode tasks[0] only");
             input_embeddings = ctx1.tensor(task0_emb.shape(), task0_emb.dtype());
             ctx1.assign_or_copy(&input_embeddings, &task0_emb);
         }
-
-        // std::cout << "input_embeddings: " << input_embeddings << std::endl;
 
         auto md = dynamic_cast<model::LLaMALike *>(searcher->par_models_[i]);
         Tensor hidden_g = md->encode(ctx1,
