@@ -19,4 +19,6 @@ void define_llama(py::module_ &handle);
 
 void define_dynamic_batch(py::module_ &handle);
 
+std::vector<int> to_int_vector(const py::list &data_list);
+
 } // namespace bind

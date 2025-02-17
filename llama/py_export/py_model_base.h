@@ -29,4 +29,8 @@ public:
     bool is_parallel() const {
         return parallel_;
     }
+
+    model::ModelBase *get_model(int i) {
+        return par_models()[i];
+    }
 };

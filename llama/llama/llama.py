@@ -124,8 +124,10 @@ class LLaMA:
             print("#################### process_inputs")
             prompt = self._tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             token_ids = self._tokenizer.encode(prompt, add_special_tokens=False)
+            print("############token_ids: ", token_ids)
             positions = list(range(0, len(token_ids)))
             input_embeds = self._model.get_input_embeddings(token_ids)
+            print("######################## input_embeds", input_embeds)
             return (token_ids, positions, input_embeds, None)
         return None
 

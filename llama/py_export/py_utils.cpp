@@ -1,4 +1,5 @@
 #include "py_export/py_utils.h"
+#include "py_export/bind.h"
 
 namespace bind {
 
@@ -168,6 +169,19 @@ model::ModelConfig pydict_to_model_config(py::dict &cfg) {
     set_attr(cfg, "logit_scale", config.logit_scale);
 
     return config;
+}
+
+template <typename T>
+std::vector<T> to_1d_vector(const py::list &z) {
+    std::vector<T> v;
+    for (const auto &it : z) {
+        v.emplace_back(it.cast<T>());
+    }
+    return v;
+}
+
+std::vector<int> to_int_vector(const py::list &data_list) {
+    return to_1d_vector<int>(data_list);
 }
 
 } // namespace bind

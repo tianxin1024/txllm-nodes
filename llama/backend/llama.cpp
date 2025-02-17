@@ -98,4 +98,10 @@ core::Tensor LLaMA::encode(ModelContext &ctx,
     ctx.set_current_layer(-1);
 }
 
+core::Tensor LLaMA::get_input_embeddings(ModelContext &ctx,
+                                         const core::Tensor &ids) {
+    ctx.set_current_layer(-1);
+    return token_embedding.forward(ctx, ids);
+}
+
 } // namespace model

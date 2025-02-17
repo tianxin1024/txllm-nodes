@@ -5,6 +5,44 @@
 
 namespace nn {
 
+// gridDim (seq_len, dim_model / 1024, 1),   blockDim (1024, 1, 1)
+template <typename T>
+__global__ void BM_KERNEL(embedding)(int begin, int end,
+                                     size_t dim_model, float scale,
+                                     const int32_t *__restrict__ idx, // (batch, seq_len)
+                                     const T *__restrict__ weight,    // (vocab_size, dim_model)
+                                     T *__restrict__ out) {           // (batch, seq_len, dim_model)
+    int target_id = idx[blockIdx.x];
+    int col = blockIdx.y * blockDim.x + threadIdx.x;
+    size_t offset = blockIdx.x * dim_model;
+    bool in_range = target_id >= begin && target_id < end;
+    target_id -= begin;
+    if (col < dim_model) {
+        out[offset + col] = in_range ? T(float(weight[size_t(target_id) * dim_model + col]) * scale) : T(0.);
+    }
+}
+
+static __host__ void embedding(const core::Tensor &idx,
+                               const core::Tensor &weight,
+                               const core::Tensor &out,
+                               int begin,
+                               int end,
+                               float scale,
+                               cudaStream_t stream) {
+    int seq_len = idx.numel();
+    int dim_model = weight.size(1);
+    int threads = round_up_thread(dim_model);
+    dim3 gridDim(seq_len, round_up(dim_model, threads) / threads);
+    dim3 blockDim(threads);
+
+    BM_DTYPE_DISPATCH_FLOAT(weight.dtype(), {
+        BM_KERNEL(embedding)<scalar_t><<<gridDim, blockDim, 0, stream>>>(
+            begin, end, dim_model, scale,
+            idx.data<int32_t>(), weight.data<scalar_t>(), out.data<scalar_t>());
+    });
+    BM_CUDART_ASSERT(cudaGetLastError());
+}
+
 class RawEmbedding::impl {
 public:
     class NormalImpl;
@@ -68,7 +106,10 @@ public:
         BM_ASSERT(ids.ndim() == 1 || ids.ndim() == 2, "ids must be 1d or 2d");
 
         auto out_shape = ids.shape();
-        // TODO tianx doing
+        out_shape.push_back(dim_model);
+        core::Tensor ret = ctx.tensor(out_shape, dtype);
+        embedding(ids, weight, ret, begin, end, scale_factor, ctx.current_stream()->ptr);
+        return ret;
     }
 
     core::Tensor projection(const core::Context &ctx,
@@ -150,8 +191,8 @@ void RawEmbedding::set_logit_scale(float b) {
 }
 
 core::Tensor RawEmbedding::forward(const core::Context &ctx,
-                                   const core::Tensor &input) { // (seq_len, dim_model)
-    return pimpl->projection(ctx, input);
+                                   const core::Tensor &input) { // (seq_len)
+    return pimpl->forward(ctx, input);
 }
 
 void RawEmbedding::load_state_dict(const core::Context &ctx,

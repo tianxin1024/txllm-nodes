@@ -856,6 +856,7 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
             int limit = 1; // dual_stream ? 1 : max_batch - active_count
             new_tasks = searcher->queue_.pop_multi(
                 limit, active_count == 0, 1, max_total_token, pre_alloc);
+            std::cout << " >>>>> new_tasks size: " << new_tasks.size() << std::endl;
             for (auto task : new_tasks) {
                 task->begin_ts = logger::get_time_us();
             }

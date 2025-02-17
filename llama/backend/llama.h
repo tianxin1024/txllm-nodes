@@ -39,6 +39,8 @@ public:
                                 const core::Tensor &hidden_pass,
                                 bool ln_output = true) = 0;
 
+    virtual core::Tensor get_input_embeddings(ModelContext &ctx, const core::Tensor &ids) = 0;
+
     // virtual core::Tensor get_logits(ModelContext &ctx,
     //                                 const core::Tensor &hidden,
     //                                 bool ln_input) = 0;
@@ -87,6 +89,8 @@ private:
                         const core::Tensor &placement,
                         const core::Tensor &hidden_pass, // half (batch, len_q, lem_model)
                         bool ln_output = true) override;
+
+    core::Tensor get_input_embeddings(ModelContext &ctx, const core::Tensor &ids) override;
 
     // core::Tensor get_logits(ModelContext &ctx, const core::Tensor &hidden, bool ln_input) override;
 };
