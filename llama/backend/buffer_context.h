@@ -23,6 +23,8 @@ public:
     ~BufferContext() = default;
     BufferContext(BufferContext &&) = default;
 
+    virtual KVCache *buf_k() = 0;
+    virtual KVCache *buf_v() = 0;
     virtual Tensor *buf_k(size_t layer) = 0;
     virtual Tensor *buf_v(size_t layer) = 0;
 
@@ -50,6 +52,12 @@ public:
                              bool BSHD = false);
     ~TransformerBufferContext();
 
+    KVCache *buf_k() override {
+        return buf_k_.get();
+    }
+    KVCache *buf_v() override {
+        return buf_v_.get();
+    }
     Tensor *buf_k(size_t layer) override;
     Tensor *buf_v(size_t layer) override;
 

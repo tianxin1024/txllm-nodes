@@ -52,12 +52,25 @@ public:
                                  const core::Tensor &position_bias, // if relative (batch, num_head, len_q, len_buf) else if rotary (batch, len_q)
                                  const core::Tensor &seqlens_q,     // (batch)
                                  const core::Tensor &seqlens_kv,    // (batch)
-                                 const core::Tensor *pask_k,        // (batch, num_head, len_buf, dim_head)
-                                 const core::Tensor *pask_v,        // (batch, num_head, len_buf, dim_head)
+                                 const core::Tensor *past_k,        // (batch, num_head, len_buf, dim_head)
+                                 const core::Tensor *past_v,        // (batch, num_head, len_buf, dim_head)
                                  const core::Tensor *block_table,   // (batch, num_head, len_buf, dim_head)
                                  const core::Tensor *placement) {   // (batch, len_q) int32
 
         ModelContext *m_ctx = dynamic_cast<ModelContext *>(const_cast<core::Context *>(&ctx));
+        core::Tensor ret;
+
+        if (!mask_modules[0]) {
+            auto ln_out = ln_attn(ctx, inp);
+            std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> block forward" << std::endl;
+            if (m_ctx && m_ctx->is_calc_act_scales()) {
+                m_ctx->update_act_scale(ln_attn.prefix + ".max_out", ln_out);
+            }
+
+            // ret = attn(ctx, ln_out, mask, position_bias,
+            //            seqlens_q, seqlens_kv, past_k, past_v,
+            //            block_table, placement, nullptr);
+        }
     }
 
 }; // end of class EncoderLayer::impl
@@ -137,6 +150,7 @@ core::Tensor EncoderLayer::forward(const core::Context &ctx,
                                    const core::Tensor *past_v,        // (batch, num_head, len_buf, dim_head)
                                    const core::Tensor *block_table,   // (batch, blocks_per_seq)
                                    const core::Tensor *placement) {   // (batch, len_q) int32
+    std::cout << ">>>>>>>>>>>>>>>>>>>>>> EncoderLayer::forward()" << std::endl;
     size_t M = inp.numel() / inp.size(-1);
     core::EventScope event_scope(ctx, logger::str_cat("EncoderLayer[M=", M, "]"), 1);
     {

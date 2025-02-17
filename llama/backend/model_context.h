@@ -54,6 +54,9 @@ private:
 
     std::shared_ptr<ReduceContext> reducer_;
 
+    bool calc_act_scales_{false};
+    std::map<std::string, Tensor> act_scale_map_;
+
     std::map<std::string, Tensor> layer_cache_;
 
     bool latent_cache_{false};
@@ -109,6 +112,12 @@ public:
         Context::set_current_layer(i);
         layer_cache_.clear();
     }
+
+    bool is_calc_act_scales() const {
+        return calc_act_scales_;
+    }
+
+    void update_act_scale(const std::string &name, const Tensor &act);
 
 private:
     KVCacheConfig get_kv_cache_config();

@@ -2,6 +2,7 @@
 #include "backend/allocate_utils.h"
 #include "backend/rag_buffer_context.h"
 #include "backend/dyn_batch_context.h"
+#include <bmengine/functions/all.h>
 #include "backend/utils.h"
 #include <utility>
 #include <numeric>
@@ -99,6 +100,14 @@ ModelContext ModelContext::create(core::Engine &engine,
     }
     model_ctx.reducer_ = std::make_shared<ReduceContext>();
     return model_ctx;
+}
+
+void ModelContext::update_act_scale(const std::string &name, const Tensor &act) {
+    Tensor x = functions::reduce_abs_max(*this, act);
+    if (act_scale_map_.count(name) > 0) {
+        x = functions::BinaryElementwiseOp(*this, functions::BinaryElementwiseOp::Max).forward(*this, act_scale_map_[name], x);
+    }
+    act_scale_map_[name] = x;
 }
 
 } // namespace model

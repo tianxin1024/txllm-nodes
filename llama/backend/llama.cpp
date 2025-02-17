@@ -54,14 +54,11 @@ core::Tensor LLaMA::encode(ModelContext &ctx,
                            const core::Tensor &placement,
                            const core::Tensor &hidden_pass, // half (batch, len_q, dim_model)
                            bool ln_output) {
-    std::cout << ">>>>>>>>>>>>>>>>>>> llama LLaMA::encode " << std::endl;
-    std::cout << ">>>>>>>>>>>>>>>>>> input ids: " << ids.numel() << std::endl;
     ctx.set_current_layer(-1);
     Tensor hidden;
     if (hidden_pass.empty()) {
-        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 0 >>>>>>>>>>>>>>>" << std::endl;
         hidden = token_embedding(ctx, ids);
-        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 01 >>>>>>>>>>>>>>>" << std::endl;
+        std::cout << ">>>>>>>> hidden size: " << hidden.numel() << std::endl;
     } else {
         hidden = functions::typecast(ctx, hidden_pass, dtype);
     }
@@ -70,7 +67,6 @@ core::Tensor LLaMA::encode(ModelContext &ctx,
     //     std::tie(rope_cache.cos, rope_cache.sin) = rope_preparer->forward(ctx, pos_ids);
     // }
 
-    std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 1 >>>>>>>>>>>>>>>" << std::endl;
     bool dual_stream = utils::get_int_env("DUAL_STREAM", 0) > 0 && ctx.world_size() > 1;
     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 1 >>>>>>>>>>>>>>>" << std::endl;
     int dual_stream_thres = utils::get_int_env("DUAL_STREAM_THRESHOLD", 1024);
@@ -93,7 +89,9 @@ core::Tensor LLaMA::encode(ModelContext &ctx,
             hidden = encoder[i](ctx, hidden, mask, pos_ids, seqlens_q, seqlens_kv,
                                 ctx.buf_k(i), ctx.buf_v(i), ctx.block_table(i),
                                 &placement);
+            std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 22 >>>>>>>>>>>>>>>" << std::endl;
         }
+        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 3 >>>>>>>>>>>>>>>" << std::endl;
     }
     ctx.set_current_layer(-1);
 }
