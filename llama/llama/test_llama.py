@@ -17,7 +17,7 @@ def main():
     model_dir = "/home/tianxin/data/LLM/TinyLlama-1.1B-Chat-v1.0/tinyllama-1b"
 
     model_config_tiny: LLaMAModelConfig = {
-        "num_layers": 22,      # 模型层数
+        "num_layers": 2,      # 模型层数
         "dim_model": 2048,     # 隐藏层维度
         "num_heads": 16,       # 注意力头数
         "dim_head": 128,       # 注意力头维度

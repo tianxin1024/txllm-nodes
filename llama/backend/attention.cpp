@@ -71,14 +71,18 @@ public:
         weight_transposed(cfg.weight_transposed),
         rope_theta(cfg.rope_theta),
         project_q(ctx, dim_model, dim_head * num_heads, "", quant, scale_weights, weight_transposed, parallel, core::DistLayout::COLUMNAR, dtype),
-        project_k(ctx, dim_model, dim_head * num_kv_heads, "", quant_kv, scale_weights, weight_transposed, parallel, num_kv_heads > 1 ? core::DistLayout::COLUMNAR : core::DistLayout::REPLICATED, dtype),
-        project_v(ctx, dim_model, dim_head * num_kv_heads, "", quant_kv, scale_weights, weight_transposed, parallel, num_kv_heads > 1 ? core::DistLayout::COLUMNAR : core::DistLayout::REPLICATED, dtype),
+        // project_k(ctx, dim_model, dim_head * num_kv_heads, "", quant_kv, scale_weights, weight_transposed, parallel, num_kv_heads > 1 ? core::DistLayout::COLUMNAR : core::DistLayout::REPLICATED, dtype),
+        project_k(ctx, dim_model, dim_head * 2, "", quant_kv, scale_weights, weight_transposed, parallel, num_kv_heads > 1 ? core::DistLayout::COLUMNAR : core::DistLayout::REPLICATED, dtype),
+        // project_v(ctx, dim_model, dim_head * num_kv_heads, "", quant_kv, scale_weights, weight_transposed, parallel, num_kv_heads > 1 ? core::DistLayout::COLUMNAR : core::DistLayout::REPLICATED, dtype),
+        project_v(ctx, dim_model, dim_head * 2, "", quant_kv, scale_weights, weight_transposed, parallel, num_kv_heads > 1 ? core::DistLayout::COLUMNAR : core::DistLayout::REPLICATED, dtype),
         attn_out(ctx, dim_head * num_heads, dim_model, "", quant, scale_weights, weight_transposed, parallel, core::DistLayout::ROW, dtype),
         gemm_attn(ctx, dtype, true, true),
         gemm_transB(ctx, dtype, false, true),
         gemm_score_v(ctx, dtype, false, false),
         transpose(ctx) {
-        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> num_head_groups: " << num_head_groups << std::endl;
+        // std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> num_head_groups: " << num_head_groups << std::endl;
+        // std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> num_kv_heads : " << num_kv_heads << std::endl;
+        // std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> dim_head : " << dim_head << std::endl;
         if (cfg.model_type == "qwen2" || cfg.model_type == "qwen2_moe") {
             project_q.set_has_bias(true);
             project_k.set_has_bias(true);
@@ -261,6 +265,25 @@ Attention::Attention(const core::Context &ctx,
         // pimpl->add_submodules(this);
     } else {
         normal_impl = new impl::NormalImpl(ctx, cfg, quant_cfg, parallel);
+    }
+
+    if (normal_impl) {
+        add_submodule("project_q", normal_impl->project_q);
+        add_submodule("project_k", normal_impl->project_k);
+        add_submodule("project_v", normal_impl->project_v);
+        add_submodule("attn_out", normal_impl->attn_out);
+        // gemm has no weight; add only for set prefix
+        add_submodule("gemm_attn", normal_impl->gemm_attn);
+        add_submodule("gemm_transB", normal_impl->gemm_transB);
+        if (ctx.high_precision() >= 1) {
+            normal_impl->gemm_attn.set_compute_type(CUBLAS_COMPUTE_32F);
+            normal_impl->gemm_transB.set_compute_type(CUBLAS_COMPUTE_32F);
+        }
+        if (normal_impl->q_norm) {
+            add_submodule("q_norm", normal_impl->q_norm.get());
+            add_submodule("k_norm", normal_impl->k_norm.get());
+        }
+        pimpl.reset(normal_impl);
     }
 }
 
