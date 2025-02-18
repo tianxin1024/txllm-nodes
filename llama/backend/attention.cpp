@@ -7,6 +7,7 @@
 #include "backend/transformer_buffer.h"
 #include "backend/attention_kernel.h"
 #include "backend/attention_base.h"
+#include "backend/rotary_embedding.h"
 
 namespace nn {
 
@@ -15,6 +16,7 @@ using model::ModelContext;
 using bmengine::core::Tensor;
 using bmengine::functions::concat_tensor;
 using bmengine::functions::BinaryElementwiseOp;
+using model::RagBufferContext;
 typedef std::vector<size_t> ShapeT;
 
 class Attention::impl::NormalImpl : public Attention::impl {
@@ -36,6 +38,8 @@ public:
 
     Linear project_q, project_k, project_v;
     Linear attn_out;
+
+    RotaryEmbedding rotary_embedding;
 
     // fuse project_q, project_k and project_v
     std::unique_ptr<Linear> linear_qkv;
@@ -69,6 +73,7 @@ public:
         quant_kv(as_quant_kv(quant)),
         scale_weights(cfg.scale_weights),
         weight_transposed(cfg.weight_transposed),
+        rotary_embedding(ctx, cfg),
         rope_theta(cfg.rope_theta),
         project_q(ctx, dim_model, dim_head * num_heads, "", quant, scale_weights, weight_transposed, parallel, core::DistLayout::COLUMNAR, dtype),
         // project_k(ctx, dim_model, dim_head * num_kv_heads, "", quant_kv, scale_weights, weight_transposed, parallel, num_kv_heads > 1 ? core::DistLayout::COLUMNAR : core::DistLayout::REPLICATED, dtype),
@@ -139,10 +144,7 @@ public:
     core::Tensor dynamic_batch_forward(model::ModelContext &ctx,
                                        const core::Tensor &hidden_q,
                                        const core::Tensor &position_or_bias,
-                                       core::Tensor *output) {
-        std::cout << "?>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>. dynamic_batch_forward" << std::endl;
-        std::cout << "num_head_groups : " << num_head_groups << std::endl;
-    }
+                                       core::Tensor *output);
 
     core::Tensor forward_BHSD(const core::Context &ctx,
                               const core::Tensor &hidden_q,      // (batch?, len_q, dim_model)
@@ -224,35 +226,45 @@ public:
 
 }; // end of lcass Attention::impl::NormalImpl
 
-// Tensor Attention::impl::NormalImpl::dynamic_batch_forward(model::ModelContext &ctx,
-//                                                           const core::Tensor &hidden_q, // (group_len_q, dim_model)
-//                                                           const core::Tensor &position_bias,
-//                                                           core::Tensor *output) {
-//     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 0123 " << std::endl;
-//     model::DynBatchContext *dyn_batch = ctx.dyn_batch().get();
-//     cudaStream_t stream = ctx.current_stream()->ptr;
-//     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 0000000" << std::endl;
-//     std::cout << "num_head_groups : " << num_head_groups << std::endl;
-//     size_t n_rep = num_head_groups;
+Tensor Attention::impl::NormalImpl::dynamic_batch_forward(model::ModelContext &ctx,
+                                                          const core::Tensor &hidden_q, // (group_len_q, dim_model)
+                                                          const core::Tensor &position_bias,
+                                                          core::Tensor *output) {
+    model::DynBatchContext *dyn_batch = ctx.dyn_batch().get();
+    cudaStream_t stream = ctx.current_stream()->ptr;
+    std::cout << "num_head_groups : " << num_head_groups << std::endl;
+    size_t n_rep = num_head_groups;
 
-//     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 0000000" << std::endl;
-//     BM_ASSERT(ctx.rag_buffer(), "");
-//     int event_level = get_event_level(ctx);
-//     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 0000000" << std::endl;
-//     core::EventScope ev(ctx, "Attention(DynBatch)", 1);
+    BM_ASSERT(ctx.rag_buffer(), "");
+    int event_level = get_event_level(ctx);
+    core::EventScope ev(ctx, "Attention(DynBatch)", 1);
 
-//     Tensor g_h_q;
-//     Tensor g_h_k;
-//     Tensor g_h_v;
-//     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 0000000" << std::endl;
-//     static int fuse_pkv = utils::get_int_env("CPM_FUSE_QKV", 0);
-//     static int fuse_v2_thres = utils::get_int_env("FUSE_V2_THRES", 8);
-//     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 0000000" << std::endl;
-//     if (linear_qkv.get() && (fuse_pkv == 1 || fuse_pkv == 2 && hidden_q.size(0) <= fuse_v2_thres)) {
-//         // fuse Q, K, V
-//         std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 1111111" << std::endl;
-//     }
-// }
+    Tensor g_h_q;
+    Tensor g_h_k;
+    Tensor g_h_v;
+    static int fuse_pkv = utils::get_int_env("CPM_FUSE_QKV", 0);
+    static int fuse_v2_thres = utils::get_int_env("FUSE_V2_THRES", 8);
+    if (linear_qkv.get() && (fuse_pkv == 1 || fuse_pkv == 2 && hidden_q.size(0) <= fuse_v2_thres)) {
+        // fuse Q, K, V
+        auto a = linear_qkv->forward(ctx, hidden_q); // (group_len_q, (num_heads + 2 * num_kv_heads) * dim_head)
+        BM_ASSERT_EQ(a.size(-1), (num_heads + 2 * num_kv_heads) * dim_head, "");
+        // TODO ...
+    } else {
+        g_h_q = project_q(ctx, hidden_q); // (group_len_q, num_heads * dim_head)
+        g_h_k = project_k(ctx, hidden_q); // (group_len_q, num_kv_heads * dim_head)
+        g_h_v = project_v(ctx, hidden_q); // (group_len_q, num_kv_heads * dim_head)
+
+        if (q_norm) {
+            g_h_q = q_norm->forward(ctx, g_h_q);
+            g_h_k = k_norm->forward(ctx, g_h_k);
+        }
+        if (pos_bias_type == "rotary") {
+            auto h_qk = rotary_embedding(ctx, position_bias, g_h_q, g_h_k);
+            g_h_q = std::get<0>(h_qk);
+            g_h_k = std::get<1>(h_qk);
+        }
+    }
+}
 
 Attention::Attention(const core::Context &ctx,
                      model::ModelConfig cfg,
@@ -305,8 +317,9 @@ core::Tensor Attention::forward(const core::Context &ctx,
     ModelContext *m_ctx = dynamic_cast<ModelContext *>(const_cast<core::Context *>(&ctx));
     if (m_ctx && m_ctx->dyn_batch()) {
         std::cout << ">>>>>>>>>>>>>>>> Attention forward 01" << std::endl;
-        impl::NormalImpl *p = dynamic_cast<impl::NormalImpl *>(pimpl.get());
-        return p->dynamic_batch_forward(*m_ctx, hidden_q, position_bias, output);
+        // impl::NormalImpl *p = dynamic_cast<impl::NormalImpl *>(pimpl.get());
+        // return p->dynamic_batch_forward(*m_ctx, hidden_q, position_bias, output);
+        return pimpl->dynamic_batch_forward(*m_ctx, hidden_q, position_bias, output);
     }
     // core::EventScope event_score(ctx, "Attention", 1);
     Tensor *past_k = const_cast<Tensor *>(c_past_k);
@@ -338,7 +351,7 @@ void Attention::load_state_dict(const core::Context &ctx,
         // auto a = Linear::fuse(ctx, p->project_q, p->project_k, p->project_v);
         // p->linear_qkv = std::unique_ptr<Linear>(a);
     }
-    // pimpl->on_load(ctx);
+    pimpl->on_load(ctx);
 }
 
 } // namespace nn
