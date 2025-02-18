@@ -70,6 +70,7 @@ public:
             ret = attn(ctx, ln_out, mask, position_bias,
                        seqlens_q, seqlens_kv, past_k, past_v,
                        block_table, placement, nullptr);
+            std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> block forward" << std::endl;
         }
     }
 

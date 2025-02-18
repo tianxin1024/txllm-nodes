@@ -4,31 +4,18 @@
 #include "backend/layernorm.h"
 #include <bmengine/core/core.h>
 #include <bmengine/functions/all.h>
+#include "backend/transformer_buffer.h"
+#include "backend/attention_kernel.h"
+#include "backend/attention_base.h"
 
 namespace nn {
 
 using namespace bmengine;
 using model::ModelContext;
 using bmengine::core::Tensor;
-
-class Attention::impl {
-public:
-    class NormalImpl;
-    impl() = default;
-    virtual ~impl() = default;
-    impl(const impl &) = delete;
-    impl(impl &&) = delete;
-
-    virtual core::Tensor dynamic_batch_forward(model::ModelContext &ctx,
-                                               const core::Tensor &hidden_q,
-                                               const core::Tensor &position_or_bias,
-                                               core::Tensor *output) {
-        throw std::runtime_error("Unsupported");
-    }
-
-    virtual void on_load(const core::Context &ctx) {
-    }
-}; // end of class Attention::impl
+using bmengine::functions::concat_tensor;
+using bmengine::functions::BinaryElementwiseOp;
+typedef std::vector<size_t> ShapeT;
 
 class Attention::impl::NormalImpl : public Attention::impl {
 public:
@@ -91,6 +78,7 @@ public:
         gemm_transB(ctx, dtype, false, true),
         gemm_score_v(ctx, dtype, false, false),
         transpose(ctx) {
+        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> num_head_groups: " << num_head_groups << std::endl;
         if (cfg.model_type == "qwen2" || cfg.model_type == "qwen2_moe") {
             project_q.set_has_bias(true);
             project_k.set_has_bias(true);
@@ -116,6 +104,13 @@ public:
 
     virtual ~NormalImpl() = default;
 
+    int get_event_level(const core::Context &ctx) {
+        if (ctx.current_layer() == 1000 && ctx.active_device() == 0 && ctx.rank() == 0) {
+            return 0;
+        }
+        return 2;
+    }
+
     virtual core::Tensor forward(const core::Context &ctx,
                                  const core::Tensor &hidden_q,      // (batch?, len_q, dim_model)
                                  const core::Tensor &mask,          // (batch?, len_q, len_buf)  int8
@@ -127,6 +122,7 @@ public:
                                  const core::Tensor *block_table,   // (batch, blocks_per_seq)
                                  const core::Tensor *placement,     // (batch?, len_q, ) int32
                                  core::Tensor *output) {
+        std::cout << ">>>>>>>>>>>>>>>> Attention forward" << std::endl;
         if (seqlens_kv.numel() == 0) {
             core::EventScope event_scope(ctx, "Attention", 1);
             return forward_BHSD(ctx, hidden_q, mask, position_bias, past_k, past_v, placement);
@@ -134,6 +130,14 @@ public:
             core::EventScope event_scope(ctx, "Attention(Flash)", 1);
             // return forward_BSHD(ctx, hidden_q, position_bias, seqlens_q, seqlens_kv, past_k, past_v, block_table);
         }
+    }
+
+    core::Tensor dynamic_batch_forward(model::ModelContext &ctx,
+                                       const core::Tensor &hidden_q,
+                                       const core::Tensor &position_or_bias,
+                                       core::Tensor *output) {
+        std::cout << "?>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>. dynamic_batch_forward" << std::endl;
+        std::cout << "num_head_groups : " << num_head_groups << std::endl;
     }
 
     core::Tensor forward_BHSD(const core::Context &ctx,
@@ -173,8 +177,8 @@ public:
         ctx.recordEvent("copy_to_buffer,K&V", event_level);
         h_k = h_k.view({batch, len_q, num_kv_heads, dim_head});
         h_v = h_v.view({batch, len_q, num_kv_heads, dim_head});
-        copy_to_buffer(num_kv_heads, len_q, len_buf, dim_head, placement, h_k, key_buf, stream);
-        copy_to_buffer(num_kv_heads, len_q, len_buf, dim_head, placement, h_v, val_buf, stream);
+        kvcache::copy_to_buffer(num_kv_heads, len_q, len_buf, dim_head, placement, h_k, key_buf, stream);
+        kvcache::copy_to_buffer(num_kv_heads, len_q, len_buf, dim_head, placement, h_v, val_buf, stream);
 
         // (batch, len_q, num_heads, dim_head) => (batch, num_heads, len_q, dim_head)
         ctx.recordEvent("transposeQ", event_level);
@@ -216,6 +220,36 @@ public:
 
 }; // end of lcass Attention::impl::NormalImpl
 
+// Tensor Attention::impl::NormalImpl::dynamic_batch_forward(model::ModelContext &ctx,
+//                                                           const core::Tensor &hidden_q, // (group_len_q, dim_model)
+//                                                           const core::Tensor &position_bias,
+//                                                           core::Tensor *output) {
+//     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 0123 " << std::endl;
+//     model::DynBatchContext *dyn_batch = ctx.dyn_batch().get();
+//     cudaStream_t stream = ctx.current_stream()->ptr;
+//     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 0000000" << std::endl;
+//     std::cout << "num_head_groups : " << num_head_groups << std::endl;
+//     size_t n_rep = num_head_groups;
+
+//     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 0000000" << std::endl;
+//     BM_ASSERT(ctx.rag_buffer(), "");
+//     int event_level = get_event_level(ctx);
+//     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 0000000" << std::endl;
+//     core::EventScope ev(ctx, "Attention(DynBatch)", 1);
+
+//     Tensor g_h_q;
+//     Tensor g_h_k;
+//     Tensor g_h_v;
+//     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 0000000" << std::endl;
+//     static int fuse_pkv = utils::get_int_env("CPM_FUSE_QKV", 0);
+//     static int fuse_v2_thres = utils::get_int_env("FUSE_V2_THRES", 8);
+//     std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 0000000" << std::endl;
+//     if (linear_qkv.get() && (fuse_pkv == 1 || fuse_pkv == 2 && hidden_q.size(0) <= fuse_v2_thres)) {
+//         // fuse Q, K, V
+//         std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> 1111111" << std::endl;
+//     }
+// }
+
 Attention::Attention(const core::Context &ctx,
                      model::ModelConfig cfg,
                      model::QuantConfig quant_cfg,
@@ -243,14 +277,19 @@ core::Tensor Attention::forward(const core::Context &ctx,
                                 const core::Tensor *block_table,   // (batch_size, blocks_per_seq)
                                 const core::Tensor *placement,     // (batch?, len_q, ) int32
                                 core::Tensor *output) {
+    std::cout << ">>>>>>>>>>>>>>>> Attention forward 0" << std::endl;
+    // ModelContext *m_ctx = dynamic_cast<ModelContext *>(const_cast<core::Context *>(&ctx));
     ModelContext *m_ctx = dynamic_cast<ModelContext *>(const_cast<core::Context *>(&ctx));
     if (m_ctx && m_ctx->dyn_batch()) {
-        return pimpl->dynamic_batch_forward(*m_ctx, hidden_q, position_bias, output);
+        std::cout << ">>>>>>>>>>>>>>>> Attention forward 01" << std::endl;
+        impl::NormalImpl *p = dynamic_cast<impl::NormalImpl *>(pimpl.get());
+        return p->dynamic_batch_forward(*m_ctx, hidden_q, position_bias, output);
     }
     // core::EventScope event_score(ctx, "Attention", 1);
     Tensor *past_k = const_cast<Tensor *>(c_past_k);
     Tensor *past_v = const_cast<Tensor *>(c_past_v);
     impl::NormalImpl *p = dynamic_cast<impl::NormalImpl *>(pimpl.get());
+    std::cout << ">>>>>>>>>>>>>>>> Attention forward 1" << std::endl;
     return p->forward(ctx, hidden_q, mask, position_bias,
                       seqlens_q, seqlens_kv,
                       past_k, past_v,
@@ -261,7 +300,8 @@ core::Tensor Attention::dyn_rag_forward(model::ModelContext &ctx,
                                         const core::Tensor &inp,      // (grouped_len_q, dim_model)
                                         const core::Tensor &position, // (grouped_len_q)
                                         core::Tensor *output) {
-    return pimpl->dynamic_batch_forward(ctx, inp, position, output);
+    impl::NormalImpl *p = dynamic_cast<impl::NormalImpl *>(pimpl.get());
+    return p->dynamic_batch_forward(ctx, inp, position, output);
 }
 
 void Attention::load_state_dict(const core::Context &ctx,

@@ -46,6 +46,16 @@ public:
 
 }; // end of class TransformerBuffer
 
+void copy_to_buffer(int num_heads,
+                    int len_kv,
+                    int len_buf,
+                    int dim_head,
+                    const core::Tensor *placement,
+                    const core::Tensor &src,
+                    const core::Tensor &dst,
+                    cudaStream_t stream,
+                    bool BSHD = false); // batch, (seqlen, num_heads|num_heads, seqlen), dim_head
+
 core::Tensor resize_buffer(const core::Context &ctx, const core::Tensor &buffer, int dim, size_t new_length);
 
 } // namespace kvcache
