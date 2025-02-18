@@ -8,6 +8,8 @@
 namespace nn {
 
 using namespace bmengine;
+using model::ModelContext;
+using bmengine::core::Tensor;
 
 class Attention::impl {
 public:
@@ -112,6 +114,106 @@ public:
         max_shared_memory = ctx.get_max_shared_memory();
     }
 
+    virtual ~NormalImpl() = default;
+
+    virtual core::Tensor forward(const core::Context &ctx,
+                                 const core::Tensor &hidden_q,      // (batch?, len_q, dim_model)
+                                 const core::Tensor &mask,          // (batch?, len_q, len_buf)  int8
+                                 const core::Tensor &position_bias, // if relative (batch, num_head, len_q, len_buf) else if rotary (len_q)
+                                 const core::Tensor &seqlens_q,     // (batch?, 1,)  int32
+                                 const core::Tensor &seqlens_kv,    // (batch?, 1,) int32
+                                 core::Tensor *past_k,              // (batch, num_heads, len_buf, dim_head)
+                                 core::Tensor *past_v,              // (batch, num_heads, len_buf, dim_head)
+                                 const core::Tensor *block_table,   // (batch, blocks_per_seq)
+                                 const core::Tensor *placement,     // (batch?, len_q, ) int32
+                                 core::Tensor *output) {
+        if (seqlens_kv.numel() == 0) {
+            core::EventScope event_scope(ctx, "Attention", 1);
+            return forward_BHSD(ctx, hidden_q, mask, position_bias, past_k, past_v, placement);
+        } else {
+            core::EventScope event_scope(ctx, "Attention(Flash)", 1);
+            // return forward_BSHD(ctx, hidden_q, position_bias, seqlens_q, seqlens_kv, past_k, past_v, block_table);
+        }
+    }
+
+    core::Tensor forward_BHSD(const core::Context &ctx,
+                              const core::Tensor &hidden_q,      // (batch?, len_q, dim_model)
+                              const core::Tensor &mask,          // (batch?, len_q, len_buf) int8
+                              const core::Tensor &position_bias, // if relative (batch, num_head, len_q, len_buf) else if rotary (len_q)
+                              core::Tensor *past_k,              // (batch, num_heads, leb_buf, dim_head)
+                              core::Tensor *past_v,              // (batch, num_heads, len_buf, dim_head)
+                              const core::Tensor *placement) {   // (batch?, len_q,) int32
+        int event_level = get_event_level(ctx);
+
+        size_t batch = (mask.ndim() == 2) ? 1 : mask.size(0);
+        uint32_t len_q = mask.size(-2);
+        uint32_t len_buf = mask.size(-1);
+
+        const core::Tensor &key_buf =
+            past_k == nullptr ?
+                ctx.tensor({batch, num_kv_heads, len_buf, dim_head}, dtype) :
+                past_k->view({batch, num_kv_heads, len_buf, dim_head});
+        const core::Tensor &val_buf =
+            past_v == nullptr ?
+                ctx.tensor({batch, num_kv_heads, len_buf, dim_head}, dtype) :
+                past_v->view({batch, num_kv_heads, len_buf, dim_head});
+
+        int active_dev = ctx.active_device();
+        BM_ASSERT(active_dev == key_buf.device(), "Invalid past_k device");
+        BM_ASSERT(active_dev == val_buf.device(), "invalid past_v device");
+        if (placement != nullptr) {
+            BM_ASSERT(active_dev == placement->device(), "Invalid placement device");
+        }
+
+        Tensor h_q = project_q(ctx, hidden_q); // (batch?, len_q, num_heads * dim_head)
+        Tensor h_k = project_k(ctx, hidden_q); // (batch?, len_q, num_kv_heads * dim_head)
+        Tensor h_v = project_v(ctx, hidden_q); // (batch?, len_q, num_kv_heads * dim_head)
+
+        cudaStream_t stream = ctx.current_stream()->ptr;
+        ctx.recordEvent("copy_to_buffer,K&V", event_level);
+        h_k = h_k.view({batch, len_q, num_kv_heads, dim_head});
+        h_v = h_v.view({batch, len_q, num_kv_heads, dim_head});
+        copy_to_buffer(num_kv_heads, len_q, len_buf, dim_head, placement, h_k, key_buf, stream);
+        copy_to_buffer(num_kv_heads, len_q, len_buf, dim_head, placement, h_v, val_buf, stream);
+
+        // (batch, len_q, num_heads, dim_head) => (batch, num_heads, len_q, dim_head)
+        ctx.recordEvent("transposeQ", event_level);
+        h_q = transpose_2_1(ctx, h_q.view({batch, len_q, num_heads, dim_head}));
+        h_q = h_q.view({batch, num_kv_heads, num_head_groups * len_q, dim_head});
+
+        // Q * K
+        ctx.recordEvent("Q*K", event_level);
+        Tensor attn_score = gemm_transB.forward(
+            ctx,
+            h_q,    // ColMajor: (batch, num_kv_heads, dim_head, num_head_group * len_q)
+            key_buf // ColMajor: (batch, num_kv_heads, len_buf, dim_head)T
+        );          // (batch, num_kv_heads, num_head_groups * len_q, len_buf)
+
+        // attn_softmax in-place update attn_score
+        ctx.recordEvent("attn_softmax", event_level);
+        const Tensor &pos_bias = pos_bias_type == "relative" ? position_bias : core::Tensor();
+        Tensor attn_score_q = attn_score.view({batch, num_heads, len_q, len_buf});
+        attn_softmax(ctx, attn_scale, attn_score_q, mask, pos_bias);
+
+        // Score * V
+        ctx.recordEvent("Score*V", event_level);
+        Tensor attn_res = gemm_score_v(
+            ctx,
+            attn_score, // ColMajor: (batch, num_kv_heads, len_buf, num_head_groups * len_q)
+            val_buf     // ColMajor: (batch, num_kv_heads, dim_head, len_buf)
+        );              // (batch, num_kv_heads, num_head_groups * len_q, dim_head)
+
+        // transpose: (batch, num_heads, len_q, dim_head) => (batch, len_q, num_heads, dim_head)
+        ctx.recordEvent("transposeAV", event_level);
+        Tensor attn_value_t = transpose_2_1(ctx, attn_res.view({batch, num_heads, len_q, dim_head}));
+        ctx.recordEvent("End>transposeAV", event_level);
+
+        ShapeT attn_value_shape = (mask.ndim() == 2) ?
+                                      ShapeT({len_q, num_heads * dim_head}) :
+                                      ShapeT({batch, len_q, num_heads * dim_head});
+        return attn_out(ctx, attn_value_t.view(attn_value_shape)); // return (batch?, len_q, dim_model)
+    }
+
 }; // end of lcass Attention::impl::NormalImpl
 
 Attention::Attention(const core::Context &ctx,
@@ -129,6 +231,31 @@ Attention::Attention(const core::Context &ctx,
 }
 
 Attention::~Attention() = default;
+
+core::Tensor Attention::forward(const core::Context &ctx,
+                                const core::Tensor &hidden_q,      // (len_q, dim_model)
+                                const core::Tensor &mask,          // (len_q, len_buf)
+                                const core::Tensor &position_bias, // if relative (num_head, len_q, len_buf) else if rotary (len_q)
+                                const core::Tensor &seqlens_q,     // (batch?, 1)  int32
+                                const core::Tensor &seqlens_kv,    // (batch?, 1,)  int32
+                                const core::Tensor *c_past_k,      // (num_head, len_buf, dim_head)
+                                const core::Tensor *c_past_v,      // (num_head, len_buf, dim_head)
+                                const core::Tensor *block_table,   // (batch_size, blocks_per_seq)
+                                const core::Tensor *placement,     // (batch?, len_q, ) int32
+                                core::Tensor *output) {
+    ModelContext *m_ctx = dynamic_cast<ModelContext *>(const_cast<core::Context *>(&ctx));
+    if (m_ctx && m_ctx->dyn_batch()) {
+        return pimpl->dynamic_batch_forward(*m_ctx, hidden_q, position_bias, output);
+    }
+    // core::EventScope event_score(ctx, "Attention", 1);
+    Tensor *past_k = const_cast<Tensor *>(c_past_k);
+    Tensor *past_v = const_cast<Tensor *>(c_past_v);
+    impl::NormalImpl *p = dynamic_cast<impl::NormalImpl *>(pimpl.get());
+    return p->forward(ctx, hidden_q, mask, position_bias,
+                      seqlens_q, seqlens_kv,
+                      past_k, past_v,
+                      block_table, placement, output);
+}
 
 core::Tensor Attention::dyn_rag_forward(model::ModelContext &ctx,
                                         const core::Tensor &inp,      // (grouped_len_q, dim_model)

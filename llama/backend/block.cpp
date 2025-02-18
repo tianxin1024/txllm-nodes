@@ -67,9 +67,9 @@ public:
                 m_ctx->update_act_scale(ln_attn.prefix + ".max_out", ln_out);
             }
 
-            // ret = attn(ctx, ln_out, mask, position_bias,
-            //            seqlens_q, seqlens_kv, past_k, past_v,
-            //            block_table, placement, nullptr);
+            ret = attn(ctx, ln_out, mask, position_bias,
+                       seqlens_q, seqlens_kv, past_k, past_v,
+                       block_table, placement, nullptr);
         }
     }
 
