@@ -61,7 +61,6 @@ public:
         ModelContext *m_ctx = dynamic_cast<ModelContext *>(const_cast<core::Context *>(&ctx));
         core::Tensor ret;
 
-        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> block forward start " << std::endl;
         if (!mask_modules[0]) {
             auto ln_out = ln_attn(ctx, inp);
             if (m_ctx && m_ctx->is_calc_act_scales()) {
@@ -71,11 +70,8 @@ public:
             ret = attn(ctx, ln_out, mask, position_bias,
                        seqlens_q, seqlens_kv, past_k, past_v,
                        block_table, placement, nullptr);
-            std::cout << ">>>> dtype: " << std::to_string(dtype) << std::endl;
-            std::cout << ">>>> ret.dtype: " << std::to_string(ret.dtype()) << std::endl;
 
-            // TODO tianx ...
-            // BM_ASSERT_EQ(ret.dtype(), dtype, "dtype mismatch");
+            BM_ASSERT_EQ(ret.dtype(), dtype, "dtype mismatch");
             if (parallel) {
                 ret = ctx.reduce_sum(ret, dtype);
             }
@@ -85,8 +81,18 @@ public:
         }
 
         if (!mask_modules[1]) {
+            auto ln_out = ln_ff(ctx, ret);
+            BM_ASSERT_EQ(ln_out.dtype(), dtype, "dtype mismatch");
+            if (m_ctx && m_ctx->is_calc_act_scales()) {
+                m_ctx->update_act_scale(ln_ff.prefix + ".max_out", ln_out);
+            }
+            Tensor ff_out = ff.forward(ctx, ln_out);
+            if (parallel) {
+                ff_out = ctx.reduce_sum(ff_out, dtype);
+            }
+            element_add_scale_out(ctx, ret, ff_out, ret, 1 / scale, scale_residual);
         }
-        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> block forward end" << std::endl;
+        return ret;
     }
 
 }; // end of class EncoderLayer::impl

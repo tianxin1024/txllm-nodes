@@ -298,7 +298,13 @@ Tensor Attention::impl::NormalImpl::dynamic_batch_forward(model::ModelContext &c
                                            g_h_v.slice_dim0(0, num_enc),
                                            attn_val_g.slice_dim0(0, num_enc));
     }
-    // TODO tianx ...
+
+    if (num_s == 0) {
+        return attn_out.forward(ctx, attn_val_g); // (group_len_q, dim_model)
+    }
+
+    auto ret = attn_out.forward(ctx, attn_val_g); // (group_len_q, dim_model)
+    return ret;
 }
 
 Tensor Attention::impl::NormalImpl::attn_encode_group(model::ModelContext &ctx,

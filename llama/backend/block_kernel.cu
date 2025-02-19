@@ -32,7 +32,7 @@ void element_add_scale_out(const core::Context &ctx,
         // return ;
     }
 
-    // BM_ASSERT_EQ(a.dtype(), b.dtype(), "type mismatch");
+    BM_ASSERT_EQ(a.dtype(), b.dtype(), "type mismatch");
     int threads = round_up(std::min((size_t)1024, n), 32);
     int blocks = round_up(n, threads) / threads;
     dim3 gridDim(blocks, 1, 1);
