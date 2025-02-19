@@ -11,6 +11,7 @@
 #include "backend/dyn_batch_context.h"
 #include "backend/rag_buffer_context.h"
 #include <bmengine/logger/std_log_op.hpp>
+#include "private/allocator.h"
 
 namespace nn {
 
@@ -122,6 +123,20 @@ public:
                              Tensor h_k_enc,
                              Tensor h_v_enc,
                              Tensor attn_value_enc);
+
+    int get_split(model::ModelContext &ctx, size_t mem) {
+        auto allocator = ctx.get_allocator();
+        size_t free_memory = allocator->get_memory_limit() - allocator->used_memory();
+        // const size_t mem_limit = 128 * 1024 * 1024 * sizeof(half)
+        const size_t mem_limit = free_memory / 2;
+        int n_split = 1;
+        while (mem > mem_limit && (n_split * 2) <= num_kv_heads
+               && (num_kv_heads % (n_split * 2) == 0)) {
+            n_split *= 2;
+            mem /= 2;
+        }
+        return n_split;
+    }
 
     int get_event_level(const core::Context &ctx) {
         if (ctx.current_layer() == 1000 && ctx.active_device() == 0 && ctx.rank() == 0) {
@@ -316,7 +331,6 @@ Tensor Attention::impl::NormalImpl::attn_encode_group(model::ModelContext &ctx,
     size_t offset = 0;
     size_t batch_enc = dyn_batch->ev_batch.size();
     for (size_t i = 0; i < batch_enc; ++i) {
-        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>> 123attn_encode_group" << std::endl;
         int b = dyn_batch->ev_batch[i];
         size_t input_len = dyn_batch->ev_input_len[i];
         size_t full_input_len = dyn_batch->full_input_len[i]; // = input_len + cache_len
@@ -341,11 +355,70 @@ Tensor Attention::impl::NormalImpl::attn_encode_group(model::ModelContext &ctx,
             BM_ASSERT(ctx.is_BSHD(), "flash attention only");
             // TODO tianx ...
         } else {
-            if (ctx.is_layer(0)) {
+            size_t old_len = full_input_len - input_len;
+            // key_buf = rag_buffer->buf_k(b).copy(ctx, ctx.current_layer(), h_k, placement, old_len);
+            // val_buf = rag_buffer->buf_v(b).copy(ctx, ctx.current_layer(), h_v, placement, old_len);
+            key_buf = rag_buffer->buf_k(b, ctx.current_layer());
+            val_buf = rag_buffer->buf_v(b, ctx.current_layer());
+            copy_to_buffer(num_kv_heads, input_len, len_buf_b, dim_head, &placement, h_k, key_buf, stream, ctx.is_BSHD());
+            copy_to_buffer(num_kv_heads, input_len, len_buf_b, dim_head, &placement, h_v, val_buf, stream, ctx.is_BSHD());
+
+            int custom_attn = utils::get_int_env("CPM_CUSTOM_SELF_ATTN", 0);
+            if (custom_attn && num_head_groups == 8 && !ctx.is_BSHD()) {
+                // multi_query_self_attention(ctx, h_q, key_buf, val_buf, mask, attn_scale, v_t, 0);
+                // offset += input_len;
+                // continue;
             }
         }
-        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>> 123attn_encode_group" << std::endl;
+
+        if (ctx.is_BSHD()) {
+            // TODO tianx ...
+        }
+
+        ctx.recordEvent("tranposeQ", event_level);
+        h_q = transpose_2_1(ctx, h_q).view({num_kv_heads, n_rep * input_len, dim_head});
+        std::cout << ">>>>>> len_buf_b: " << len_buf_b << ", len_buf: " << len_buf << std::endl;
+        if (len_buf_b < len_buf) {
+            ctx.recordEvent("CopyKV", event_level);
+            // TODO tianx ...
+        }
+
+        const Tensor &pos_bias = pos_bias_type == "relative" ? dyn_batch->e_position_bias(ctx, i) : Tensor();
+        Tensor attn_res = ctx.tensor({num_kv_heads, num_head_groups * input_len, dim_head}, dtype);
+        // split attn_score(space: O(n^2)) to reduce memory usage
+        size_t attn_score_memory = num_heads * input_len * len_buf_b * core::get_elem_size(dtype);
+        int n_split = rag_buffer ? get_split(ctx, attn_score_memory) : 1;
+        if (n_split == 1) {
+            // Q * K
+            ctx.recordEvent("Q*K", event_level);
+            Tensor attn_score = gemm_transB.forward(ctx,
+                                                    h_q,    // ColMajor: (num_kv_heads, dim_head, n_rep * input_len)
+                                                    key_buf // ColMajor: (num_kv_heads, len_buf, dim_head)T
+            );                                              // (num_kv_heads, n_rep * input_len, len_buf_b)
+
+            // attn_softmax in-place update attn_score
+            ctx.recordEvent("attn_softmax", event_level);
+            Tensor attn_score_q = attn_score.view({num_heads, input_len, len_buf_b});
+            attn_softmax(ctx, attn_scale, attn_score_q, mask, pos_bias);
+
+            // Score * V
+            ctx.recordEvent("Score*V", event_level);
+            gemm_score_v(ctx,
+                         attn_score, // ColMajor: (num_kv_heads, len_buf, num_head_groups * len_q)
+                         val_buf,    // ColMajor: (num_kv_heads, dim_head, len_buf)
+                         &attn_res   // (num_kv_heads, num_head_groups * len_q, dim_head)
+            );
+        } else {
+            // TODO tianx ...
+        }
+
+        // transpose: (num_heads, len_q, dim_head) => (len_q, num_heads * dim_head)
+        ctx.recordEvent("transposeAV", event_level);
+        transpose_2_1(ctx, attn_res.view({num_heads, input_len, dim_head}), &v_t);
+
+        offset += input_len;
     }
+    return attn_value_enc;
 }
 
 Attention::Attention(const core::Context &ctx,

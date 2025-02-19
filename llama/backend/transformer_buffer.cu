@@ -82,6 +82,32 @@ void copy_to_buffer(int num_heads,
     BM_CUDART_ASSERT(cudaGetLastError());
 }
 
+core::Tensor TransformerBuffer::copy(const core::Context &ctx,
+                                     int layer,
+                                     const core::Tensor &src,
+                                     const core::Tensor &placement,
+                                     int start,
+                                     bool need_dequant) {
+    BM_ASSERT_LT(layer, buffer.size(), "Out of range");
+    core::Tensor dst = buffer[layer];
+    BM_ASSERT(BSHD, "flash attention only");
+    BM_ASSERT_EQ(src.ndim(), 3, "Wrong ndim, input should be SHD");
+    BM_ASSERT_EQ(dst.ndim(), 3, "Wrong ndim, buffer should be SHD");
+
+    cudaStream_t stream = ctx.current_stream()->ptr;
+
+    int len_kv = src.size(0);
+    int len_buf = dst.size(0);
+    std::cout << "0000000000000>>>>>>>>>>>>>>> TransformerBuffer copy" << std::endl;
+    if (!is_quantized()) {
+        copy_to_buffer(num_heads, len_kv, len_buf, dim_head, &placement, src, dst, stream, BSHD);
+        std::cout << ">>>>>>>>>>>>>>> TransformerBuffer copy" << std::endl;
+        return dst;
+    }
+
+    // quantized cache;
+}
+
 // gridDim (n / 1024, 1, 1),    blockDim (1024, 1, 1)
 template <typename T>
 __global__ void BM_KERNEL(resize_buffer)(

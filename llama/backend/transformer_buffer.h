@@ -39,6 +39,12 @@ public:
     }
 
     void resize(const core::Context &ctx, size_t new_length) override;
+    core::Tensor copy(const core::Context &ctx,
+                      int layer,
+                      const core::Tensor &src,
+                      const core::Tensor &placement,
+                      int start = 0,
+                      bool need_dequant = false);
 
     const core::Tensor &get_scale(int i) const;
     bool is_quantized() const {

@@ -104,6 +104,14 @@ struct DynBatchContext {
             .view({size_t(ev_input_len[b]), size_t(ev_len_buf[b])});
     }
 
+    Tensor e_position_bias(ModelContext &ctx, int b) {
+        return *ctx.identity(&e_position_biases[b], "e_position_bias");
+    }
+
+    Tensor s_position_bias(ModelContext &ctx, int b) {
+        return *ctx.identity(&s_position_biases[b], "s_position_bias");
+    }
+
     void set_search(const Tensor &token_ids,
                     const Tensor &token_sub,
                     const Tensor &placement,
