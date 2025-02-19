@@ -8,6 +8,9 @@
 #include "backend/attention_kernel.h"
 #include "backend/attention_base.h"
 #include "backend/rotary_embedding.h"
+#include "backend/dyn_batch_context.h"
+#include "backend/rag_buffer_context.h"
+#include <bmengine/logger/std_log_op.hpp>
 
 namespace nn {
 
@@ -17,6 +20,7 @@ using bmengine::core::Tensor;
 using bmengine::functions::concat_tensor;
 using bmengine::functions::BinaryElementwiseOp;
 using model::RagBufferContext;
+using bmengine::logger::str_cat;
 typedef std::vector<size_t> ShapeT;
 
 class Attention::impl::NormalImpl : public Attention::impl {
@@ -76,18 +80,13 @@ public:
         rotary_embedding(ctx, cfg),
         rope_theta(cfg.rope_theta),
         project_q(ctx, dim_model, dim_head * num_heads, "", quant, scale_weights, weight_transposed, parallel, core::DistLayout::COLUMNAR, dtype),
-        // project_k(ctx, dim_model, dim_head * num_kv_heads, "", quant_kv, scale_weights, weight_transposed, parallel, num_kv_heads > 1 ? core::DistLayout::COLUMNAR : core::DistLayout::REPLICATED, dtype),
-        project_k(ctx, dim_model, dim_head * 2, "", quant_kv, scale_weights, weight_transposed, parallel, num_kv_heads > 1 ? core::DistLayout::COLUMNAR : core::DistLayout::REPLICATED, dtype),
-        // project_v(ctx, dim_model, dim_head * num_kv_heads, "", quant_kv, scale_weights, weight_transposed, parallel, num_kv_heads > 1 ? core::DistLayout::COLUMNAR : core::DistLayout::REPLICATED, dtype),
-        project_v(ctx, dim_model, dim_head * 2, "", quant_kv, scale_weights, weight_transposed, parallel, num_kv_heads > 1 ? core::DistLayout::COLUMNAR : core::DistLayout::REPLICATED, dtype),
+        project_k(ctx, dim_model, dim_head * num_kv_heads, "", quant_kv, scale_weights, weight_transposed, parallel, num_kv_heads > 1 ? core::DistLayout::COLUMNAR : core::DistLayout::REPLICATED, dtype),
+        project_v(ctx, dim_model, dim_head * num_kv_heads, "", quant_kv, scale_weights, weight_transposed, parallel, num_kv_heads > 1 ? core::DistLayout::COLUMNAR : core::DistLayout::REPLICATED, dtype),
         attn_out(ctx, dim_head * num_heads, dim_model, "", quant, scale_weights, weight_transposed, parallel, core::DistLayout::ROW, dtype),
         gemm_attn(ctx, dtype, true, true),
         gemm_transB(ctx, dtype, false, true),
         gemm_score_v(ctx, dtype, false, false),
         transpose(ctx) {
-        // std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> num_head_groups: " << num_head_groups << std::endl;
-        // std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> num_kv_heads : " << num_kv_heads << std::endl;
-        // std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> dim_head : " << dim_head << std::endl;
         if (cfg.model_type == "qwen2" || cfg.model_type == "qwen2_moe") {
             project_q.set_has_bias(true);
             project_k.set_has_bias(true);
@@ -112,6 +111,17 @@ public:
     }
 
     virtual ~NormalImpl() = default;
+
+    core::Tensor dynamic_batch_forward(model::ModelContext &ctx,
+                                       const core::Tensor &hidden_q,
+                                       const core::Tensor &position_or_bias,
+                                       core::Tensor *output);
+
+    Tensor attn_encode_group(model::ModelContext &ctx,
+                             Tensor h_q_enc,
+                             Tensor h_k_enc,
+                             Tensor h_v_enc,
+                             Tensor attn_value_enc);
 
     int get_event_level(const core::Context &ctx) {
         if (ctx.current_layer() == 1000 && ctx.active_device() == 0 && ctx.rank() == 0) {
@@ -140,11 +150,6 @@ public:
             // return forward_BSHD(ctx, hidden_q, position_bias, seqlens_q, seqlens_kv, past_k, past_v, block_table);
         }
     }
-
-    core::Tensor dynamic_batch_forward(model::ModelContext &ctx,
-                                       const core::Tensor &hidden_q,
-                                       const core::Tensor &position_or_bias,
-                                       core::Tensor *output);
 
     core::Tensor forward_BHSD(const core::Context &ctx,
                               const core::Tensor &hidden_q,      // (batch?, len_q, dim_model)
@@ -263,6 +268,83 @@ Tensor Attention::impl::NormalImpl::dynamic_batch_forward(model::ModelContext &c
             g_h_q = std::get<0>(h_qk);
             g_h_k = std::get<1>(h_qk);
         }
+    }
+
+    bool has_encode = !dyn_batch->ev_batch.empty();
+    size_t num_enc = dyn_batch->e_placement.numel();
+    size_t num_s = dyn_batch->s_placement.numel();
+    std::cout << "num_enc=" << num_enc << ", num_s=" << num_s << ", all=" << g_h_q.size(0) << std::endl;
+    BM_ASSERT_EQ(num_enc + num_s, g_h_q.size(0), "dim mismatch");
+    Tensor attn_val_g = ctx.tensor({g_h_q.size(0), num_heads * dim_head}, dtype);
+
+    Tensor attn_value_enc;
+    if (has_encode) {
+        attn_value_enc = attn_encode_group(ctx,
+                                           g_h_q.slice_dim0(0, num_enc),
+                                           g_h_k.slice_dim0(0, num_enc),
+                                           g_h_v.slice_dim0(0, num_enc),
+                                           attn_val_g.slice_dim0(0, num_enc));
+    }
+}
+
+Tensor Attention::impl::NormalImpl::attn_encode_group(model::ModelContext &ctx,
+                                                      Tensor h_q_enc,
+                                                      Tensor h_k_enc,
+                                                      Tensor h_v_enc,
+                                                      Tensor attn_value_enc) { // num_enc, num_heads * dim_head
+    model::DynBatchContext *dyn_batch = ctx.dyn_batch().get();
+    model::RagBufferContext *rag_buffer = ctx.rag_buffer().get();
+
+    Tensor *past_k = ctx.buf_k(ctx.current_layer()); // (batch, num_heads, len_buf, dim_head)
+    Tensor *past_v = ctx.buf_v(ctx.current_layer()); // (batch, num_heads, len_buf, dim_head)
+
+    cudaStream_t stream = ctx.current_stream()->ptr;
+    size_t n_rep = num_head_groups;
+    int event_level = get_event_level(ctx);
+    size_t num_enc = dyn_batch->e_placement.numel();
+    attn_value_enc = attn_value_enc.view({num_enc, num_heads * dim_head});
+
+    const Tensor *e_batch = ctx.identity(&dyn_batch->e_batch, "e_batch");
+    const Tensor *e_placement = ctx.identity(&dyn_batch->e_placement, "e_placement");
+
+    h_q_enc = h_q_enc.view({num_enc, num_heads, dim_head});
+    h_k_enc = h_k_enc.view({num_enc, num_kv_heads, dim_head});
+    h_v_enc = h_v_enc.view({num_enc, num_kv_heads, dim_head});
+
+    BM_ASSERT(rag_buffer, "No rag buffer");
+
+    size_t offset = 0;
+    size_t batch_enc = dyn_batch->ev_batch.size();
+    for (size_t i = 0; i < batch_enc; ++i) {
+        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>> 123attn_encode_group" << std::endl;
+        int b = dyn_batch->ev_batch[i];
+        size_t input_len = dyn_batch->ev_input_len[i];
+        size_t full_input_len = dyn_batch->full_input_len[i]; // = input_len + cache_len
+        size_t len_buf_b = dyn_batch->ev_len_buf[i];
+        size_t len_buf = !rag_buffer ? past_v->size(ctx.is_BSHD() ? -3 : -2) : 0;
+
+        // split current batch from group
+        Tensor h_q = h_q_enc.slice_dim0_len(offset, input_len).view({input_len, num_heads, dim_head});
+        Tensor h_k = h_k_enc.slice_dim0_len(offset, input_len).view({input_len, num_kv_heads, dim_head});
+        Tensor h_v = h_v_enc.slice_dim0_len(offset, input_len).view({input_len, num_kv_heads, dim_head});
+        Tensor placement = e_placement->slice_dim0_len(offset, input_len);
+
+        auto ev_name = str_cat("Encode[", ctx.is_BSHD() ? "flash=True," : "", "heads=", num_heads, "]");
+        core::EventScope ev_encode1(ctx, ev_name, event_level);
+
+        Tensor key_buf;
+        Tensor val_buf;
+        Tensor mask = dyn_batch->encode_mask(ctx, i);
+        Tensor v_t = attn_value_enc.slice_dim0_len(offset, input_len)
+                         .view({input_len, num_heads, dim_head});
+        if (rag_buffer->buf_k(b).is_quantized()) {
+            BM_ASSERT(ctx.is_BSHD(), "flash attention only");
+            // TODO tianx ...
+        } else {
+            if (ctx.is_layer(0)) {
+            }
+        }
+        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>> 123attn_encode_group" << std::endl;
     }
 }
 

@@ -53,6 +53,29 @@ public:
         this->num_layers = config_k.num_layers;
     }
 
+    void check_task_index(int i_task) {
+        if (i_task >= buf_k_.size()) {
+            throw std::out_of_range("Invalid task index");
+        }
+    }
+
+    TransformerBuffer &buf_k(int b) {
+        check_task_index(b);
+        return (*buf_k_[b]);
+    }
+    TransformerBuffer &buf_v(int b) {
+        check_task_index(b);
+        return (*buf_v_[b]);
+    }
+    const Tensor &buf_k(int b, int layer) {
+        check_task_index(b);
+        return (*buf_k_[b])[layer];
+    }
+    const Tensor &buf_v(int b, int layer) {
+        check_task_index(b);
+        return (*buf_v_[b])[layer];
+    }
+
     void resize_task_buf(const core::Context &ctx, int b, size_t new_length) {
         if (buf_k_.size() < b + 1) {
             buf_k_.resize(b + 1);

@@ -1,11 +1,11 @@
 #pragma once
 
 #include <bmengine/core/core.h>
-#include "backend/model.h"
 #include "backend/model_context.h"
 
 namespace nn {
 
+using namespace kvcache;
 using namespace bmengine;
 
 class Attention : public core::Layer {

@@ -19,8 +19,9 @@ def main():
     model_config_tiny: LLaMAModelConfig = {
         "num_layers": 2,      # 模型层数
         "dim_model": 2048,     # 隐藏层维度
-        "num_heads": 16,       # 注意力头数
-        "dim_head": 128,       # 注意力头维度
+        "num_heads": 32,       # 注意力头数
+        "num_kv_heads": 4,
+        "dim_head": 64,       # 注意力头维度
         "dim_ff": 5632,        # 前馈网络维度
         "vocab_size": 32000,   # 词汇表大小
         "model_type": 'llama',

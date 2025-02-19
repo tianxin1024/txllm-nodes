@@ -41,6 +41,9 @@ public:
     void resize(const core::Context &ctx, size_t new_length) override;
 
     const core::Tensor &get_scale(int i) const;
+    bool is_quantized() const {
+        return scale_dtype_.get();
+    }
 
     void load_slice(core::Context &ctx, size_t start, size_t len, const core::Tensor &input);
 

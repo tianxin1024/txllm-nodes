@@ -1,10 +1,12 @@
 #pragma once
 
 #include <bmengine/core/core.h>
+#include "backend/model_context.h"
 
 namespace model {
 
 using bmengine::core::Tensor;
+using model::ModelContext;
 using std::vector;
 
 static inline bool is_power_of_2(int x) {
@@ -91,6 +93,16 @@ struct DynBatchContext {
     std::shared_ptr<Tensor> unquant_key_buf;
     std::shared_ptr<Tensor> unquant_val_buf;
     int input_len_no_split;
+
+    Tensor encode_mask(ModelContext &ctx, int b) {
+        int offset = 0;
+        for (int i = 0; i < b; ++i) {
+            offset += ev_input_len[i] * ev_len_buf[i];
+        }
+        return ctx.identity(&e_mask, "e_mask")
+            ->slice_dim0(offset, offset + ev_input_len[b] * ev_len_buf[b])
+            .view({size_t(ev_input_len[b]), size_t(ev_len_buf[b])});
+    }
 
     void set_search(const Tensor &token_ids,
                     const Tensor &token_sub,

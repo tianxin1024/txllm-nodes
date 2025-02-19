@@ -1,7 +1,7 @@
 #include "backend/model_context.h"
 #include "backend/allocate_utils.h"
-#include "backend/rag_buffer_context.h"
 #include "backend/dyn_batch_context.h"
+#include "backend/rag_buffer_context.h"
 #include <bmengine/functions/all.h>
 #include "backend/utils.h"
 #include <utility>
