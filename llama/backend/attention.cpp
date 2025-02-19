@@ -156,7 +156,6 @@ public:
                                  const core::Tensor *block_table,   // (batch, blocks_per_seq)
                                  const core::Tensor *placement,     // (batch?, len_q, ) int32
                                  core::Tensor *output) {
-        std::cout << ">>>>>>>>>>>>>>>> Attention forward" << std::endl;
         if (seqlens_kv.numel() == 0) {
             core::EventScope event_scope(ctx, "Attention", 1);
             return forward_BHSD(ctx, hidden_q, mask, position_bias, past_k, past_v, placement);
@@ -252,7 +251,6 @@ Tensor Attention::impl::NormalImpl::dynamic_batch_forward(model::ModelContext &c
                                                           core::Tensor *output) {
     model::DynBatchContext *dyn_batch = ctx.dyn_batch().get();
     cudaStream_t stream = ctx.current_stream()->ptr;
-    std::cout << "num_head_groups : " << num_head_groups << std::endl;
     size_t n_rep = num_head_groups;
 
     BM_ASSERT(ctx.rag_buffer(), "");
@@ -300,6 +298,7 @@ Tensor Attention::impl::NormalImpl::dynamic_batch_forward(model::ModelContext &c
                                            g_h_v.slice_dim0(0, num_enc),
                                            attn_val_g.slice_dim0(0, num_enc));
     }
+    // TODO tianx ...
 }
 
 Tensor Attention::impl::NormalImpl::attn_encode_group(model::ModelContext &ctx,
@@ -467,11 +466,9 @@ core::Tensor Attention::forward(const core::Context &ctx,
                                 const core::Tensor *block_table,   // (batch_size, blocks_per_seq)
                                 const core::Tensor *placement,     // (batch?, len_q, ) int32
                                 core::Tensor *output) {
-    std::cout << ">>>>>>>>>>>>>>>> Attention forward 0" << std::endl;
     // ModelContext *m_ctx = dynamic_cast<ModelContext *>(const_cast<core::Context *>(&ctx));
     ModelContext *m_ctx = dynamic_cast<ModelContext *>(const_cast<core::Context *>(&ctx));
     if (m_ctx && m_ctx->dyn_batch()) {
-        std::cout << ">>>>>>>>>>>>>>>> Attention forward 01" << std::endl;
         // impl::NormalImpl *p = dynamic_cast<impl::NormalImpl *>(pimpl.get());
         // return p->dynamic_batch_forward(*m_ctx, hidden_q, position_bias, output);
         return pimpl->dynamic_batch_forward(*m_ctx, hidden_q, position_bias, output);
@@ -480,7 +477,6 @@ core::Tensor Attention::forward(const core::Context &ctx,
     Tensor *past_k = const_cast<Tensor *>(c_past_k);
     Tensor *past_v = const_cast<Tensor *>(c_past_v);
     impl::NormalImpl *p = dynamic_cast<impl::NormalImpl *>(pimpl.get());
-    std::cout << ">>>>>>>>>>>>>>>> Attention forward 1" << std::endl;
     return p->forward(ctx, hidden_q, mask, position_bias,
                       seqlens_q, seqlens_kv,
                       past_k, past_v,

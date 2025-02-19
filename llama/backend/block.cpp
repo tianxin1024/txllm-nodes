@@ -3,6 +3,7 @@
 #include "backend/attention.h"
 #include "backend/feedforward.h"
 #include "backend/model_context.h"
+#include "backend/block_kernel.h"
 #include "backend/utils.h"
 #include <bmengine/functions/element.h>
 #include "private/allocator.h"
@@ -60,9 +61,9 @@ public:
         ModelContext *m_ctx = dynamic_cast<ModelContext *>(const_cast<core::Context *>(&ctx));
         core::Tensor ret;
 
+        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> block forward start " << std::endl;
         if (!mask_modules[0]) {
             auto ln_out = ln_attn(ctx, inp);
-            std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> block forward" << std::endl;
             if (m_ctx && m_ctx->is_calc_act_scales()) {
                 m_ctx->update_act_scale(ln_attn.prefix + ".max_out", ln_out);
             }
@@ -70,8 +71,22 @@ public:
             ret = attn(ctx, ln_out, mask, position_bias,
                        seqlens_q, seqlens_kv, past_k, past_v,
                        block_table, placement, nullptr);
-            std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> block forward" << std::endl;
+            std::cout << ">>>> dtype: " << std::to_string(dtype) << std::endl;
+            std::cout << ">>>> ret.dtype: " << std::to_string(ret.dtype()) << std::endl;
+
+            // TODO tianx ...
+            // BM_ASSERT_EQ(ret.dtype(), dtype, "dtype mismatch");
+            if (parallel) {
+                ret = ctx.reduce_sum(ret, dtype);
+            }
+            element_add_scale_out(ctx, inp, ret, ret, 1 / scale, scale_residual); // residual first
+        } else {
+            ret = inp;
         }
+
+        if (!mask_modules[1]) {
+        }
+        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> block forward end" << std::endl;
     }
 
 }; // end of class EncoderLayer::impl

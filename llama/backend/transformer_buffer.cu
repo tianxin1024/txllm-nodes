@@ -98,12 +98,12 @@ core::Tensor TransformerBuffer::copy(const core::Context &ctx,
 
     int len_kv = src.size(0);
     int len_buf = dst.size(0);
-    std::cout << "0000000000000>>>>>>>>>>>>>>> TransformerBuffer copy" << std::endl;
     if (!is_quantized()) {
         copy_to_buffer(num_heads, len_kv, len_buf, dim_head, &placement, src, dst, stream, BSHD);
-        std::cout << ">>>>>>>>>>>>>>> TransformerBuffer copy" << std::endl;
         return dst;
     }
+
+    // TODO tianx ...
 
     // quantized cache;
 }

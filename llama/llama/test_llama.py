@@ -25,6 +25,7 @@ def main():
         "dim_ff": 5632,        # 前馈网络维度
         "vocab_size": 32000,   # 词汇表大小
         "model_type": 'llama',
+        "torch_dtype": 'float16',
         "eps": 1e-5,           # 层归一化epsilon
     }
 
