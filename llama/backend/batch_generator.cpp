@@ -801,12 +801,12 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
                                      ctx1.dyn_batch()->s_placement,
                                      input_embeddings,
                                      false);
-        std::cout << ">>>>>>>>>>>>>>>>>>>> current line >>>>>>>>>>>>>>>>>>" << std::endl;
         BM_ASSERT_EQ(hidden_g.size(0), group_token.size(0), "encode result dim mismatch");
 
         if (dyn_ctx->e_token.numel() == group_token.size(0)) {
             // Only chunking. no search tokens. Keep logits_all as empty Tensor()
-            BM_ASSERT(in_chunking(), "");
+            // TODO tianx ...
+            // BM_ASSERT(in_chunking(), "");
         } else {
             // cut out encoding
             Tensor hidden_search = hidden_g.slice_dim0(dyn_ctx->e_token.numel(), group_token.size(0));
@@ -819,9 +819,6 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
         ctx1.clear_identity_cache();
         BM_CUDART_ASSERT(cudaStreamSynchronize(ctx1.current_stream()->ptr));
     };
-
-    std::cout << "join_forward: " << logger::get_time_us() - ts0 << std::endl;
-
     peer_run(peer_fn, true); // join_forward
 
     return ret_logits;

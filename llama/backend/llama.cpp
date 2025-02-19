@@ -68,14 +68,10 @@ core::Tensor LLaMA::encode(ModelContext &ctx,
     // }
 
     bool dual_stream = utils::get_int_env("DUAL_STREAM", 0) > 0 && ctx.world_size() > 1;
-    std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 1 >>>>>>>>>>>>>>>" << std::endl;
     int dual_stream_thres = utils::get_int_env("DUAL_STREAM_THRESHOLD", 1024);
-    std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 1 >>>>>>>>>>>>>>>" << std::endl;
     if (dual_stream && ctx.get_compute_capability() > 80 && ids.size(0) > dual_stream_thres) {
-        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 1 >>>>>>>>>>>>>>>" << std::endl;
         // hidden = EncoderLayer::dual_stream_encode(ctx, encoder, hidden, pos_ids);
     } else {
-        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 2 >>>>>>>>>>>>>>>" << std::endl;
         int debug_layer = utils::get_int_env("CPM_DEBUG_LAYER", -1);
         int debug_layer_level = utils::get_int_env("CPM_DEBUG_LAYER_LEVEL", 2);
         int event_level = utils::get_int_env("CPM_DEBUG_LAYER_EV_LEVEL", debug_layer_level);
@@ -89,11 +85,19 @@ core::Tensor LLaMA::encode(ModelContext &ctx,
             hidden = encoder[i](ctx, hidden, mask, pos_ids, seqlens_q, seqlens_kv,
                                 ctx.buf_k(i), ctx.buf_v(i), ctx.block_table(i),
                                 &placement);
-            std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 22 >>>>>>>>>>>>>>>" << std::endl;
+            ctx.enable_debug(org_debug_level);
+            ctx.set_event_level(-1);
         }
         std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 3 >>>>>>>>>>>>>>>" << std::endl;
     }
     ctx.set_current_layer(-1);
+    if (ln_output) {
+        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 4 >>>>>>>>>>>>>>>" << std::endl;
+        hidden = ln_after_enc(ctx, hidden);
+    }
+    ctx.print_events();
+    std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 5 >>>>>>>>>>>>>>>" << std::endl;
+    return hidden;
 }
 
 core::Tensor LLaMA::get_input_embeddings(ModelContext &ctx,
