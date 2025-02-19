@@ -3,9 +3,14 @@
 #include <bmengine/core/core.h>
 #include <bmengine/functions/all.h>
 #include <bmengine/logger/std_log_op.hpp>
+#include "backend/model_context.h"
+#include "backend/activation_kernel.h"
 
 namespace nn {
 using namespace bmengine;
+using bmengine::core::DistLayout;
+using bmengine::core::Tensor;
+using model::ModelContext;
 
 // tensors will be updated to returned tensor's slice
 core::Tensor concat_dim0(const core::Context &ctx, std::vector<core::Tensor *> tensors, bool stack) {
@@ -86,6 +91,12 @@ public:
 
     virtual void set_output_type(core::DataType dtype) = 0;
 
+    virtual core::Tensor forward(const core::Context &ctx,
+                                 const core::Tensor &input,
+                                 const std::string &output_name,
+                                 bool quant_back,
+                                 Tensor *output) = 0;
+
     virtual void load_state_dict(const core::Context &ctx,
                                  const std::map<std::string, const core::Tensor> &state_dict,
                                  const std::string &prefix,
@@ -96,8 +107,23 @@ public:
             throw std::runtime_error("Bias is not implemented");
     }
 
+    Tensor activate(const core::Context &ctx, const Tensor &ret) {
+        if (!act_fn_type.empty()) {
+            ctx.recordEvent(act_fn_type, 2);
+        }
+        if (act_fn_type == "gelu") {
+            gelu_inplace(ret, ctx.current_stream()->ptr);
+        } else if (act_fn_type == "silu") {
+            silu_inplace(ret, ctx.current_stream()->ptr);
+        } else if (act_fn_type != "") {
+            throw std::runtime_error(act_fn_type + " activation is not supported");
+        }
+        return ret;
+    }
+
 }; // end of class Lienar::impl
 
+// =========================== normal linear ===========================
 class Linear::impl::NormalLinear : public Linear::impl {
 public:
     bool parallel;
@@ -185,6 +211,33 @@ public:
             ctx.load_parameter(&bias, name, state_dict, parallel, bias_layout);
         }
     }
+
+    core::Tensor forward(const core::Context &ctx,
+                         const core::Tensor &input,
+                         const std::string &output_name,
+                         bool quant_back,
+                         Tensor *output) override {
+        /*
+        * Input: (seq_len, dim_in)
+        * Output: (seq_len, dim_out)
+        */
+        BM_ASSERT(input.ndim() == 2 || input.ndim() == 3, "Input must be 2D/3D");
+        BM_ASSERT_EQ(input.dtype(), weight->dtype(), "Input data type mismatch");
+        BM_ASSERT_EQ(input.device(), weight->device(), "Input and weight must be on the same device");
+
+        core::Tensor ret; // (seq_len, dim_out)
+        // x @ W^T
+        if (!weight_transposed) {
+            ret = gemm_A_Btrans.forward(ctx, input, *weight, output, has_bias ? &bias : nullptr);
+        } else {
+            ret = gemm_A_B.forward(ctx, input, *weight);
+        }
+
+        // set name here to avoid memory allocation.
+        ret.set_name(output_name);
+        return activate(ctx, ret);
+    }
+
 }; // end of class Linear::impl::NormalLinear
 
 Linear::Linear(const core::Context &ctx,
@@ -272,7 +325,31 @@ core::Tensor Linear::forward(const core::Context &ctx,
                              const core::Tensor &input,
                              bool quant_back,
                              core::Tensor *output) {
-    std::cout << "Linear::forward" << std::endl;
+    size_t K = input.size(-1);
+    size_t M = input.numel() / K;
+    size_t N = DistLayout::COLUMNAR == pimpl->dist_layout ? pimpl->dim_out / ctx.world_size() : pimpl->dim_out;
+    auto name1 = "Linear(" + name + ")[M=";
+    auto ev_name = logger::str_cat(name1, M, ",N=", N, ",K=", K, "]");
+    size_t flops = 2UL * K * M * N;
+    core::EventScope event_scope(ctx, ev_name, 2, flops);
+
+    Tensor ret;
+    if (input.ndim() == 2) {
+        ret = pimpl->forward(ctx, input, output_name, quant_back, output);
+    } else {
+        core::Tensor input2d = input.view({input.numel() / input.size(-1), input.size(-1)});
+        Tensor ret2d = pimpl->forward(ctx, input2d, output_name, quant_back, output);
+        auto out_shape = input.shape();
+        out_shape[out_shape.size() - 1] = ret2d.size(-1);
+        ret = ret2d.view(out_shape);
+    }
+
+    // clear layer_cache to reduce memory usage if not dual_stream
+    ModelContext *m_ctx = const_cast<ModelContext *>(dynamic_cast<const ModelContext *>(&ctx));
+    // if (m_ctx && !m_ctx->dual_stream()) {
+    //     m_ctx->layer_cache().clear();
+    // }
+    return ret;
 }
 
 } // namespace nn
