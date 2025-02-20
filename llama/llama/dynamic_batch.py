@@ -169,6 +169,7 @@ class RequestResult:
         assert update_flag == StreamResultType.Final, "not a final result"
         assert isinstance(final_results, list), "final_results should be a list"
         outputs = [_convert_output(x) for x in final_results]
+        print("python >>>>>>>>>>>> ", outputs)
         return RequestResult(prompt, outputs, input_tokens_num)
 
 

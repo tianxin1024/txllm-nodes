@@ -434,6 +434,7 @@ public:
         if (!config.nccl) {
             // TODO ...
         }
+        exit(0);
 
         // calc max_buf_token_num
         auto &model = *searcher->model_;
@@ -447,7 +448,7 @@ public:
         //     kv_buf_bytes = model.num_layers * (ctx.cfg.kv_lora_rank + ctx.cfg.qk_rope_head_dim) * sizeof(half);
         // }
         // TODO memory / 10
-        size_t reserve_mem = size_t(config.reserved_work_mem_mb) * 1024U * 1024U / 10;
+        size_t reserve_mem = size_t(config.reserved_work_mem_mb) * 1024U * 1024U;
         if (need_dequant_weight) {
             std::cout << ">>>>>>>>>>>>>> need_dequant_weight " << std::endl;
         }
@@ -466,6 +467,7 @@ public:
             std::cout << "kv_per_token=" << (kv_buf_btypes / 1024) << "KB, ";
             std::cout << "max_buf_token_num=" << max_buf_token_num << std::endl;
         }
+        exit(0);
         if (reserve_mem > free_mem) {
             throw std::runtime_error("Not enough memory for workspace");
         }
@@ -541,7 +543,12 @@ public:
 
     void fill_search_tokens(Mat2DInt &h_placement, Matrix2D<float> &h_prob_prev);
 
+    void save_prompt_cache() {
+    }
+
     Tensor join_forward(Tensor *hidden);
+
+    void pick_top_k(Tensor logits_all, Tensor hidden, Mat2DInt &h_placement, Matrix2D<float> &h_prob_prev);
 
     len_t assign_free_slot(SearchTask task) {
         for (len_t b = 0; b < tasks.size(); ++b) {
@@ -780,9 +787,9 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
 
         Tensor input_embeddings;
         Tensor &task0_emb = tasks[0]->input_embeddings;
-        // TODO task0_emb.empty() 内存访问不到
-        // if (!task0_emb.empty() && !dyn_ctx->e_token.empty()) {
         std::cout << "dyn_ctx->s_token.numel(): " << dyn_ctx->s_token.numel() << std::endl;
+        std::cout << "dyn_ctx->e_token.numel(): " << dyn_ctx->e_token.numel() << std::endl;
+        std::cout << "group_token.size(): " << group_token.size(0) << std::endl;
         if (!task0_emb.empty() && !dyn_ctx->e_token.empty()) {
             std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> tianx >>>>>>>>>>>>>>>>" << std::endl;
             BM_ASSERT_EQ(1, dyn_ctx->s_token.numel(), "Feed embedding decode tasks[0] only");
@@ -808,6 +815,7 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
             // TODO tianx ...
             // BM_ASSERT(in_chunking(), "");
         } else {
+            std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> run tianx " << std::endl;
             // cut out encoding
             Tensor hidden_search = hidden_g.slice_dim0(dyn_ctx->e_token.numel(), group_token.size(0));
             // Tensor logits = md->get_logits(ctx1, hidden_search, true);
@@ -905,7 +913,38 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
         /** -------------------------- Get Search Logits --------------------------- **/
         Tensor hidden;
         Tensor logits_all = join_forward(&hidden);
+        if (config.enable_prompt_caching) {
+            save_prompt_cache();
+        }
+        std::cout << " >>>>> logits_all.size: " << logits_all.numel() << std::endl;
+        if (logits_all.numel() == 0) {
+            // BM_ASSERT(in_chunking(), "");
+            std::cout << "--------------- dump -------------------" << std::endl;
+            max_batch_active = 1;
+            continue; // no other tasks, goto next chunk directly
+        }
+
+        std::cout << ">>>>>>>>>>>>>>> current line !!!" << std::endl;
+        size_t logits_dim = searcher->model_->vocab_size;
+        logits_all = logits_all.view({max_batch_active, max_beam_size, logits_dim});
+        if (hidden.numel()) {
+            hidden = hidden.view({max_batch_active, max_beam_size, hidden.size(-1)});
+        }
+
+        /** ------------------------------ Pick top k ------------------------------- **/
+        pick_top_k(logits_all, hidden, h_placement, h_prob_prev);
+
+        std::cout << ">>>>>>>>>>>>>>> well done!!!" << std::endl;
     }
+}
+
+template <>
+void SearcherImplV1<int, int>::pick_top_k(
+    Tensor logits_all, Tensor hidden, Mat2DInt &h_placement, Matrix2D<float> &h_prob_prev) {
+    std::cout << ">>>>>>>>>> pick top k >>>>>>>>>>>>>>>>>>" << std::endl;
+    size_t logits_dim = searcher->model_->vocab_size;
+    // this->apply_repetition_penalty(logits_all, h_placement);
+    // auto penalised_logits = logits_all.chunk();
 }
 
 void BatchGenerator::run() {

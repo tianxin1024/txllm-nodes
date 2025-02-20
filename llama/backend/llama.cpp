@@ -88,15 +88,12 @@ core::Tensor LLaMA::encode(ModelContext &ctx,
             ctx.enable_debug(org_debug_level);
             ctx.set_event_level(-1);
         }
-        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 3 >>>>>>>>>>>>>>>" << std::endl;
     }
     ctx.set_current_layer(-1);
     if (ln_output) {
-        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 4 >>>>>>>>>>>>>>>" << std::endl;
         hidden = ln_after_enc(ctx, hidden);
     }
     ctx.print_events();
-    std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> llama encode 5 >>>>>>>>>>>>>>>" << std::endl;
     return hidden;
 }
 
