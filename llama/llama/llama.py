@@ -178,7 +178,7 @@ class LLaMA:
         # for k, v in new_state_dict.items():
         #     print("key: ", k, "\t\t value.shape: ", v.shape)
 
-        self._model.load_state_dict_1(new_state_dict)
+        self._model.load_state_dict(new_state_dict)
 
     def load_model_pt(self, model_dir):
         state_dict = LLaMALoader.load_pt(model_dir)

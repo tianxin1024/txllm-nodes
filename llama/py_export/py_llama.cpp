@@ -103,7 +103,7 @@ public:
         return out_emb;
     }
 
-    void load_state_dict_1(const std::map<std::string, py::array> &state_dict) {
+    void load_state_dict(const std::map<std::string, py::array> &state_dict) {
         auto tensor_dict = bind::numpy_to_tensor(state_dict);
         engine_->device_foreach([this, &tensor_dict](int i) {
             auto ctx = engine_->create_context_rank(i);
@@ -121,7 +121,7 @@ void define_llama(py::module_ &handle) {
     py::class_<PyLLaMA, PyModelBase>(handle, "LLaMA")
         .def(py::init(&PyLLaMA::create))
         .def("get_input_embeddings", &PyLLaMA::get_input_embeddings)
-        .def("load_state_dict_1", &PyLLaMA::load_state_dict_1);
+        .def("load_state_dict", &PyLLaMA::load_state_dict);
 }
 
 } // namespace bind
