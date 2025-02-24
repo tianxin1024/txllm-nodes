@@ -26,6 +26,7 @@ using bmengine::core::Tensor;
 using model::RagBufferContext;
 
 using utils::Matrix2D;
+using utils::Matrix3D;
 typedef utils::Matrix2D<int32_t> Mat2DInt;
 
 typedef std::unique_lock<std::mutex> Lock;
@@ -334,7 +335,7 @@ class SearcherImplV1 {
     int debug_batch{-1};
     int debug_batch_idx{-1};
     int batch_idx{0};
-    int debug_level{0};
+    int debug_level{0}; // tianx ...
     len_t num_new_tasks{0};
     int dual_stream{false};
     bool pre_alloc{false};
@@ -732,7 +733,8 @@ void SearcherImplV1<int, int>::fill_encode_input(std::vector<SearchTask> &new_ta
             e_position = e_position.slice_dim0(0, m * h_position[0].size());
         }
 
-        if (debug_level > 1 && ctx.rank() == 0) {
+        // if (debug_level > 1 && ctx.rank() == 0) {
+        if (1) {
             std::cout << "e_token: " << e_token << std::endl;
             std::cout << "e_placement: " << e_placement << std::endl;
             std::cout << "e_position: " << e_position << std::endl;
@@ -761,6 +763,82 @@ void SearcherImplV1<int, int>::fill_search_tokens(Matrix2D<int32_t> &h_placement
         peer_run([&](int i) { set_fn(*peer_ctx[i]); }, true);
         return;
     }
+    BM_ASSERT(batch_active > 0, "");
+    Matrix2D<int32_t> h_token(batch_active, max_beam_size);
+    Matrix2D<int32_t> h_position(batch_active, max_beam_size); // pos in sentence
+    Matrix3D<int8_t> h_mask(batch_active, max_beam_size, len_buf);
+    std::vector<int> rag_buf_lens;
+    RagVector<int8_t> rag_mask;
+    std::vector<int> h_cu_q_seqlens;
+    std::vector<int> h_cu_k_seqlens;
+    h_cu_q_seqlens.push_back(0);
+    h_cu_k_seqlens.push_back(0);
+    int sum_q = 0;
+    int sum_k = 0;
+    int max_hyp_num = 0;
+    int max_q_seqlen = 0;
+    int max_k_seqlen = 0;
+
+    // fill matrices of searching tokens
+    for (size_t b = 0; b < batch_active; ++b) {
+        BM_ASSERT(!config.rag_buffer || tasks[b].get(), "rag_buffer with null task.");
+        int hyp_num = next_tokens[b].size(); // ~=beam_size; =0 if b is unused; =1 1th round.
+        if (hyp_num > max_hyp_num) {
+            max_hyp_num = hyp_num;
+        }
+        int position = tasks[b] ? int(tasks[b]->input_tokens.size()) + steps[b] : 0;
+        bool is_random = tasks[b] && tasks[b]->is_random();
+        // int cached_len = tasks[b] ? int(tasks[b]->cached_len_) : 0;
+        for (int i = 0; i < hyp_num; i++) {
+            BeamBufferInfo &hypo_i = next_tokens[b][i];
+            h_token(b, i) = hypo_i.token;
+            h_placement(b, i) = bm[b].place_token(hypo_i); // place in buffer
+            h_position(b, i) = position - 1;               // position in sentence
+            h_prob_prev(b, i) = is_random ? 0 : hypo_i.log_prob;
+        }
+        if (!config.rag_buffer) {
+            bm[b].mask_hypotheses(&h_placement(b, 0), hyp_num, &h_mask(b, 0, 0));
+        } else {
+            size_t len_q = max_beam_size;
+            size_t len_buffer = bm[b].len_buf;
+            rag_buf_lens.push_back(len_buffer);
+            rag_mask.emplace_back(len_q * len_buffer);
+            bm[b].mask_hypotheses(&h_placement(b, 0), hyp_num, &rag_mask[b][0]);
+            if (ctx.is_BSHD() && hyp_num > 0) {
+                int input_len = int(tasks[b]->input_tokens.size()) + steps[b];
+                sum_q += hyp_num;
+                sum_k += input_len;
+                h_cu_q_seqlens.push_back(sum_q);
+                h_cu_k_seqlens.push_back(sum_k);
+                if (hyp_num > max_q_seqlen) {
+                    max_q_seqlen = hyp_num;
+                }
+                if (input_len > max_k_seqlen) {
+                    max_k_seqlen = input_len;
+                }
+            }
+        }
+    }
+    auto set_fn = [&](ModelContext &ctx) {
+        // convert matrices to tensors
+        Tensor d_token = h_token.to_tensor(ctx).view({h_token.size()});
+        Tensor d_placement = h_placement.to_tensor(ctx);
+        Tensor d_position = h_position.to_tensor(ctx).view({h_token.size()});
+        Tensor d_mask = config.rag_buffer ? rag_tensor(ctx, rag_mask) : h_mask.to_tensor(ctx);
+
+        ctx.dyn_batch()->set_search(d_token, Tensor(), d_placement, d_position, d_mask);
+        ctx.dyn_batch()->sv_len_buf = rag_buf_lens;
+        ctx.dyn_batch()->s_len_buf = ctx.tensor_of(rag_buf_lens);
+        // TODO: max_hyp_num > 1
+        if (max_hyp_num == 1 && h_cu_q_seqlens.size() > 0) {
+            ctx.dyn_batch()->cu_q_seqlens = ctx.tensor_of(h_cu_q_seqlens);
+            ctx.dyn_batch()->cu_k_seqlens = ctx.tensor_of(h_cu_k_seqlens);
+            ctx.dyn_batch()->max_q_seqlen = max_q_seqlen;
+            ctx.dyn_batch()->max_k_seqlen = max_k_seqlen;
+            ctx.dyn_batch()->total_k = sum_k;
+        }
+    };
+    peer_run([&](int i) { set_fn(*peer_ctx[i]); }, true); // prepare dyn_batch search
 }
 
 using functions::concat_tensor;
@@ -807,30 +885,20 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
                                      false);
         BM_ASSERT_EQ(hidden_g.size(0), group_token.size(0), "encode result dim mismatch");
 
-        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>.. md->encode" << std::endl;
-        std::cout << ">>>>> in_chunking(): " << in_chunking() << std::endl;
-
-        // if (dyn_ctx->e_token.numel() == group_token.size(0)) {
-        if (dyn_ctx->e_token.numel() != group_token.size(0)) {
+        if (dyn_ctx->e_token.numel() == group_token.size(0)) {
             // Only chunking. no search tokens. Keep logits_all as empty Tensor()
-            // TODO tianx ...
             BM_ASSERT(in_chunking(), "");
         } else {
-            std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> run tianx " << std::endl;
-            std::cout << ">>>>>>>>> hidden_g.size: " << hidden_g.numel()
-                      << "e_token.size: " << dyn_ctx->e_token.numel() << " group_token.size: " << group_token.size(0) << std::endl;
             // cut out encoding
-            // Tensor hidden_search = hidden_g.slice_dim0(dyn_ctx->e_token.numel(), group_token.size(0));
-            // std::cout << "hidden_search: " << hidden_search.numel() << std::endl;
-            // Tensor logits = md->get_logits(ctx1, hidden_search, true);
-            Tensor logits = md->get_logits(ctx1, hidden_g, true);
+            Tensor hidden_search = hidden_g.slice_dim0(dyn_ctx->e_token.numel(), group_token.size(0));
+            std::cout << "hidden_search: " << hidden_search.numel() << std::endl;
+            Tensor logits = md->get_logits(ctx1, hidden_search, true);
             if (i == 0) {
                 ret_logits = logits;
             }
             // assign result in rank 0
             // if (i == 0) ret_logits = logits;
         }
-        std::cout << " 9999999999999 ret_logits.size: " << ret_logits.size(0) << ", " << ret_logits.size(1) << std::endl;
 
         ctx1.clear_identity_cache();
         BM_CUDART_ASSERT(cudaStreamSynchronize(ctx1.current_stream()->ptr));
@@ -926,17 +994,13 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
         if (config.enable_prompt_caching) {
             save_prompt_cache();
         }
-        std::cout << " >>>>> logits_all.size: " << logits_all.numel()
-                  << ", logits_all.size(0): " << logits_all.size(0) << ", logits_all.size(1): " << logits_all.size(1) << std::endl;
         if (logits_all.numel() == 0) {
-            // BM_ASSERT(in_chunking(), "");
+            BM_ASSERT(in_chunking(), "");
             max_batch_active = 1;
             continue; // no other tasks, goto next chunk directly
         }
 
         size_t logits_dim = searcher->model_->vocab_size;
-        std::cout << "max_batch_active=" << max_batch_active << ", max_beam_size=" << max_beam_size
-                  << ",  logits_dim=" << logits_dim << ", logits_all.size=" << logits_all.numel() << std::endl;
         logits_all = logits_all.view({max_batch_active, max_beam_size, logits_dim});
         std::cout << ">>>>>>>>>>>>>>> current line !!!" << std::endl;
         if (hidden.numel()) {
@@ -947,6 +1011,7 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
         pick_top_k(logits_all, hidden, h_placement, h_prob_prev);
 
         std::cout << ">>>>>>>>>>>>>>> well done!!!" << std::endl;
+        exit(0);
     }
 }
 

@@ -141,9 +141,7 @@ py::object PySearchTask::get_result(float timeout) {
     std::cout << ">>>>>>>>>>>>>>>>> PySearchTask get_result >>>>>>>>>>>>>>>>>>> " << std::endl;
     {
         py::gil_scoped_release release;
-        std::cout << "888888888888888888888 get result 8888888888888888" << std::endl;
         results = std::move(pop_res(timeout));
-        std::cout << "888888888888888888888 get result 8888888888888888" << std::endl;
     }
     std::cout << "PySearchTask get_result" << std::endl;
     int update_flag;

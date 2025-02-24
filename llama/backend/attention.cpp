@@ -286,7 +286,7 @@ Tensor Attention::impl::NormalImpl::dynamic_batch_forward(model::ModelContext &c
     bool has_encode = !dyn_batch->ev_batch.empty();
     size_t num_enc = dyn_batch->e_placement.numel();
     size_t num_s = dyn_batch->s_placement.numel();
-    std::cout << "num_enc=" << num_enc << ", num_s=" << num_s << ", all=" << g_h_q.size(0) << std::endl;
+    // std::cout << "num_enc=" << num_enc << ", num_s=" << num_s << ", all=" << g_h_q.size(0) << std::endl;
     BM_ASSERT_EQ(num_enc + num_s, g_h_q.size(0), "dim mismatch");
     Tensor attn_val_g = ctx.tensor({g_h_q.size(0), num_heads * dim_head}, dtype);
 

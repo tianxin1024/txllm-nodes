@@ -73,7 +73,7 @@ void attn_softmax(const core::Context &ctx,
             // TODO ...
 
         } else if (dynamic_size < ctx.get_max_shared_memory() && position_bias.numel() == 0) {
-            std::cout << "dynamic_size: " << dynamic_size << std::endl;
+            // std::cout << "dynamic_size: " << dynamic_size << std::endl;
             if (dynamic_size > 48 * 10000) {
                 // TODO ...
             }

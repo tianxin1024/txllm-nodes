@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bmengine/core/core.h>
 #include "backend/generator.h"
 #include <algorithm>
 #include <vector>
@@ -68,6 +69,18 @@ public:
         return *this;
     }
 
+    int pop_unused_pos() {
+        BM_ASSERT(!unused_buffer_pos.empty(), "extend_buffer should be called before pop");
+        int pos = unused_buffer_pos.back();
+        unused_buffer_pos.pop_back();
+        return pos;
+    }
+
+    int place_token(const BeamBufferInfo<TokenT> &token) {
+        int place = pop_unused_pos();
+        buf_local[place] = token;
+        return place;
+    }
     void init(const std::vector<TokenT> &input, int len_input) {
         // fill inputs
         for (int i = 0; i < len_input; i++) {
@@ -87,6 +100,38 @@ public:
         buf_local.resize(len_buf);
         unused_buffer_pos.clear();
         last_input_buf_pos = -1;
+    }
+
+    // mask: matrix: [x, len_buf]
+    void mask_hypothesis(int8_t *mask, size_t hyp_i, int last_pos) const {
+        // 往回遍历该 hypothesis 所有的 token 对应的 pos，包含 input
+        int pos = last_pos;
+        size_t stride = mask_stride == -1 ? len_buf : size_t(mask_stride);
+        while (pos != -1) {
+            mask[hyp_i * stride + pos] = 1; // mask[i][pos]
+            pos = buf_local[pos].prev;
+        }
+    }
+
+    void mask_hypothesis(std::vector<int8_t> &mask, size_t hyp_i, int last_pos) const {
+        mask_hypothesis(mask.data(), hyp_i, last_pos);
+    }
+
+    void mask_hypotheses(
+        const std::vector<int> &hypotheses_end_pos, std::vector<int8_t> &mask) const {
+        size_t stride = mask_stride == -1 ? len_buf : size_t(mask_stride);
+        mask.resize(hypotheses_end_pos.size() * stride);
+        std::fill(mask.begin(), mask.end(), 0);
+        for (size_t i = 0; i < hypotheses_end_pos.size(); i++) {
+            mask_hypothesis(mask, i, hypotheses_end_pos[i]);
+        }
+    }
+
+    void mask_hypotheses(const int *hypotheses_last_pos, size_t hyp_num, int8_t *mask) {
+        for (size_t i = 0; i < hyp_num; i++) {
+            mask_hypothesis(mask, i, hypotheses_last_pos[i]);
+            head_placement_.emplace_back(hypotheses_last_pos[i]);
+        }
     }
 
     void mask_input(int8_t *mask, int len_input, int stride = -1, int pos = 0) const {
