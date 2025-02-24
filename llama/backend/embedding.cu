@@ -195,6 +195,11 @@ core::Tensor RawEmbedding::forward(const core::Context &ctx,
     return pimpl->forward(ctx, input);
 }
 
+core::Tensor RawEmbedding::projection(const core::Context &ctx,
+                                      const core::Tensor &input) { // (seq_len, dim_model)
+    return pimpl->projection(ctx, input);
+}
+
 void RawEmbedding::load_state_dict(const core::Context &ctx,
                                    const std::map<std::string, const core::Tensor> &state_dict,
                                    const std::string &prefix,

@@ -20,7 +20,10 @@ class RawEmbedding : public core::Layer {
     void set_logit_scale(float b);
 
     core::Tensor forward(const core::Context &ctx,
-                         const core::Tensor &ids);
+                         const core::Tensor &ids); // (seq_len)
+
+    core::Tensor projection(const core::Context &ctx,
+                            const core::Tensor &input); // (seq_len, dim_model)
 
     void load_state_dict(const core::Context &ctx,
                          const std::map<std::string, const core::Tensor> &state_dict,

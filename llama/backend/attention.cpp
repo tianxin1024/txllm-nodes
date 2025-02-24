@@ -382,7 +382,6 @@ Tensor Attention::impl::NormalImpl::attn_encode_group(model::ModelContext &ctx,
 
         ctx.recordEvent("tranposeQ", event_level);
         h_q = transpose_2_1(ctx, h_q).view({num_kv_heads, n_rep * input_len, dim_head});
-        std::cout << ">>>>>> len_buf_b: " << len_buf_b << ", len_buf: " << len_buf << std::endl;
         if (len_buf_b < len_buf) {
             ctx.recordEvent("CopyKV", event_level);
             // TODO tianx ...

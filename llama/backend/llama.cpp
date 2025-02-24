@@ -103,4 +103,12 @@ core::Tensor LLaMA::get_input_embeddings(ModelContext &ctx,
     return token_embedding.forward(ctx, ids);
 }
 
+core::Tensor LLaMA::get_logits(ModelContext &ctx, const core::Tensor &hidden, bool ln_input) {
+    auto ln_hidden = ln_input ? ln_after_enc(ctx, hidden) : hidden;
+    Tensor ret = tie_lm_head ?
+                     token_embedding.projection(ctx, ln_hidden) :
+                     lm_head.projection(ctx, ln_hidden);
+    return ret;
+}
+
 } // namespace model

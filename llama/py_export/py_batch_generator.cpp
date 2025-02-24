@@ -21,6 +21,8 @@ public:
     generator::SearchResults results;
     bool bee_answer_multi_span;
 
+    std::vector<int> output_tokens_nums_;
+
     long enqueue_ts;
 
     static std::shared_ptr<PySearchTask> create(py::object input_tokens_or_str,
@@ -62,6 +64,10 @@ public:
 
     ~PySearchTask() {
         task_->canceled = true;
+    }
+
+    generator::SearchResults pop_res(float timeout) {
+        return task_->res_queue.pop_timeout(timeout);
     }
 
     bool has_result() {
@@ -135,9 +141,25 @@ py::object PySearchTask::get_result(float timeout) {
     std::cout << ">>>>>>>>>>>>>>>>> PySearchTask get_result >>>>>>>>>>>>>>>>>>> " << std::endl;
     {
         py::gil_scoped_release release;
-        // results = std::move(pop_res(timeout));
+        std::cout << "888888888888888888888 get result 8888888888888888" << std::endl;
+        results = std::move(pop_res(timeout));
+        std::cout << "888888888888888888888 get result 8888888888888888" << std::endl;
     }
     std::cout << "PySearchTask get_result" << std::endl;
+    int update_flag;
+    py::object out_tokens = py::none();
+    py::list final_results;
+    float score;
+    if (!results.results.empty()) {
+        std::cout << ">>>>>>>>>>>>>>>>>>>> result is not empty" << std::endl;
+        const generator::SearchResult &result0 = results.results[0];
+        update_flag = 3;
+        score = result0.score;
+        output_tokens_nums_.clear();
+    } else {
+        std::cout << ">>>>>>>>>>>>>>>>>>>> result is empty" << std::endl;
+    }
+
     // TODO ...
 }
 

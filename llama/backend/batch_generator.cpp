@@ -434,7 +434,6 @@ public:
         if (!config.nccl) {
             // TODO ...
         }
-        exit(0);
 
         // calc max_buf_token_num
         auto &model = *searcher->model_;
@@ -447,7 +446,6 @@ public:
         // if (ctx.latent_cache() && ctx.cfg.kv_lora_rank > 0) {
         //     kv_buf_bytes = model.num_layers * (ctx.cfg.kv_lora_rank + ctx.cfg.qk_rope_head_dim) * sizeof(half);
         // }
-        // TODO memory / 10
         size_t reserve_mem = size_t(config.reserved_work_mem_mb) * 1024U * 1024U;
         if (need_dequant_weight) {
             std::cout << ">>>>>>>>>>>>>> need_dequant_weight " << std::endl;
@@ -467,12 +465,11 @@ public:
             std::cout << "kv_per_token=" << (kv_buf_btypes / 1024) << "KB, ";
             std::cout << "max_buf_token_num=" << max_buf_token_num << std::endl;
         }
-        exit(0);
         if (reserve_mem > free_mem) {
             throw std::runtime_error("Not enough memory for workspace");
         }
         if (config.max_total_token > max_buf_token_num) {
-            // throw std::runtime_error("Not enough memory for max_total_token > " + std::to_string(max_buf_token_num));
+            throw std::runtime_error("Not enough memory for max_total_token > " + std::to_string(max_buf_token_num));
         }
 
         // prefix_cache.resize(device_threads.size() + 1);
@@ -810,19 +807,30 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
                                      false);
         BM_ASSERT_EQ(hidden_g.size(0), group_token.size(0), "encode result dim mismatch");
 
-        if (dyn_ctx->e_token.numel() == group_token.size(0)) {
+        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>.. md->encode" << std::endl;
+        std::cout << ">>>>> in_chunking(): " << in_chunking() << std::endl;
+
+        // if (dyn_ctx->e_token.numel() == group_token.size(0)) {
+        if (dyn_ctx->e_token.numel() != group_token.size(0)) {
             // Only chunking. no search tokens. Keep logits_all as empty Tensor()
             // TODO tianx ...
-            // BM_ASSERT(in_chunking(), "");
+            BM_ASSERT(in_chunking(), "");
         } else {
             std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> run tianx " << std::endl;
+            std::cout << ">>>>>>>>> hidden_g.size: " << hidden_g.numel()
+                      << "e_token.size: " << dyn_ctx->e_token.numel() << " group_token.size: " << group_token.size(0) << std::endl;
             // cut out encoding
-            Tensor hidden_search = hidden_g.slice_dim0(dyn_ctx->e_token.numel(), group_token.size(0));
+            // Tensor hidden_search = hidden_g.slice_dim0(dyn_ctx->e_token.numel(), group_token.size(0));
+            // std::cout << "hidden_search: " << hidden_search.numel() << std::endl;
             // Tensor logits = md->get_logits(ctx1, hidden_search, true);
-
+            Tensor logits = md->get_logits(ctx1, hidden_g, true);
+            if (i == 0) {
+                ret_logits = logits;
+            }
             // assign result in rank 0
             // if (i == 0) ret_logits = logits;
         }
+        std::cout << " 9999999999999 ret_logits.size: " << ret_logits.size(0) << ", " << ret_logits.size(1) << std::endl;
 
         ctx1.clear_identity_cache();
         BM_CUDART_ASSERT(cudaStreamSynchronize(ctx1.current_stream()->ptr));
@@ -835,6 +843,7 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
 template <typename TokenT, typename ResultT>
 void SearcherImplV1<TokenT, ResultT>::batch_search() {
     int active_count = 0;
+    std::cout << "[cpp] >>>>>>>>>> SearcherImplV1<TokenT, ResultT>::batch_search()" << std::endl;
 
     while (true) {
         if (in_chunking()) {
@@ -867,11 +876,12 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
             }
         }
 
-        // if (searcher->stopping_) {
-        //     break;
-        // } else if (max_batch_active == 0) {
-        //     // BM_ASSERT(!new_tasks.empty(), "pop_multi() return 0 tasks.");
-        // }
+        if (searcher->stopping_) {
+            break;
+        } else if (max_batch_active == 0) {
+            BM_ASSERT(!new_tasks.empty(), "pop_multi() return 0 tasks.");
+        }
+
         auto dev = ctx.with_device(0);
 
         // resize fields
@@ -916,17 +926,19 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
         if (config.enable_prompt_caching) {
             save_prompt_cache();
         }
-        std::cout << " >>>>> logits_all.size: " << logits_all.numel() << std::endl;
+        std::cout << " >>>>> logits_all.size: " << logits_all.numel()
+                  << ", logits_all.size(0): " << logits_all.size(0) << ", logits_all.size(1): " << logits_all.size(1) << std::endl;
         if (logits_all.numel() == 0) {
             // BM_ASSERT(in_chunking(), "");
-            std::cout << "--------------- dump -------------------" << std::endl;
             max_batch_active = 1;
             continue; // no other tasks, goto next chunk directly
         }
 
-        std::cout << ">>>>>>>>>>>>>>> current line !!!" << std::endl;
         size_t logits_dim = searcher->model_->vocab_size;
+        std::cout << "max_batch_active=" << max_batch_active << ", max_beam_size=" << max_beam_size
+                  << ",  logits_dim=" << logits_dim << ", logits_all.size=" << logits_all.numel() << std::endl;
         logits_all = logits_all.view({max_batch_active, max_beam_size, logits_dim});
+        std::cout << ">>>>>>>>>>>>>>> current line !!!" << std::endl;
         if (hidden.numel()) {
             hidden = hidden.view({max_batch_active, max_beam_size, hidden.size(-1)});
         }
@@ -955,10 +967,13 @@ void BatchGenerator::run() {
             *engine_, *model_, config, par_models_.empty() ? -1 : 0, !par_models_.empty());
         std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> BatchGenerator run() \n";
         if (llama_model()) {
+            std::cout << " 1231 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>> BatchGenerator run() \n";
             SearcherImplV1<int, int>(ctx, config, this).batch_search();
         } else if (!model_) {
+            std::cout << " 1111 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>> BatchGenerator run() \n";
             throw std::invalid_argument("No model");
         } else {
+            std::cout << " 2222 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>> BatchGenerator run() \n";
             throw std::invalid_argument(std::string("Unknown model:") + model_->layer_type());
         }
         std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> BatchGenerator end() \n";

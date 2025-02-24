@@ -211,10 +211,9 @@ class DynamicBatchGenerator:
         if self._do_verify:
             self.start()
             arg = GeneratorArg(max_length=1)
-            print(arg)
-            # task = self.to_c_task([888] * (config.max_total_token - 1), arg)
-            # self.generate_c(task, arg)
-            # self._do_verify = False
+            task = self.to_c_task([888] * (config.max_total_token - 1), arg)
+            self.generate_c(task, arg)
+            self._do_verify = False
             print("Done Verify max_token")
 
     @staticmethod

@@ -172,7 +172,6 @@ core::Tensor EncoderLayer::forward(const core::Context &ctx,
                                    const core::Tensor *past_v,        // (batch, num_head, len_buf, dim_head)
                                    const core::Tensor *block_table,   // (batch, blocks_per_seq)
                                    const core::Tensor *placement) {   // (batch, len_q) int32
-    std::cout << ">>>>>>>>>>>>>>>>>>>>>> EncoderLayer::forward()" << std::endl;
     size_t M = inp.numel() / inp.size(-1);
     core::EventScope event_scope(ctx, logger::str_cat("EncoderLayer[M=", M, "]"), 1);
     {

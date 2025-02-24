@@ -41,9 +41,7 @@ public:
 
     virtual core::Tensor get_input_embeddings(ModelContext &ctx, const core::Tensor &ids) = 0;
 
-    // virtual core::Tensor get_logits(ModelContext &ctx,
-    //                                 const core::Tensor &hidden,
-    //                                 bool ln_input) = 0;
+    virtual core::Tensor get_logits(ModelContext &ctx, const core::Tensor &hidden, bool ln_input) = 0;
 
     // virtual functions::ModuleList<nn::EncoderLayer> &get_encoder() = 0;
 
@@ -91,6 +89,8 @@ private:
                         bool ln_output = true) override;
 
     core::Tensor get_input_embeddings(ModelContext &ctx, const core::Tensor &ids) override;
+
+    core::Tensor get_logits(ModelContext &ctx, const core::Tensor &hidden, bool ln_input) override;
 
     // core::Tensor get_logits(ModelContext &ctx, const core::Tensor &hidden, bool ln_input) override;
 };
