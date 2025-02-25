@@ -11,6 +11,10 @@ RELEASE_FLAGS = $(FLAGS) -DCMAKE_BUILD_TYPE:STRING=Release
 all : 
 	$(CMAKE_CMD) $(DEBUG_FLAGS) && make -s -j$(NUM_JOBS) && mv ./llm_node*.so ../llama && cd ../llama && python ./test_llama.py
 
+debug:
+	gdb -x ./build/debug.gdb --args python ./llama/test_llama.py
+
+
 clean:
 	read -r -p "This will delete the contents of build/*. Are you sure? [CRAL-C to abort]" response && rm -rf build/*
 

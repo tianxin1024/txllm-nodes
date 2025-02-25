@@ -548,6 +548,8 @@ public:
 
     void pick_top_k(Tensor logits_all, Tensor hidden, Mat2DInt &h_placement, Matrix2D<float> &h_prob_prev);
 
+    void apply_repetition_penalty(Tensor &logits_all, Mat2DInt &h_prob_prev);
+
     len_t assign_free_slot(SearchTask task) {
         for (len_t b = 0; b < tasks.size(); ++b) {
             if (!tasks[b]) {
@@ -626,7 +628,7 @@ void SearcherImplV1<int, int>::fill_encode_input(std::vector<SearchTask> &new_ta
     RagVector<int32_t> h_position;
     RagVector<int8_t> h_mask;
 
-    std::cout << ">>>>>>>>>> new_tasks.size: " << new_tasks.size() << std::endl;
+    // std::cout << ">>>>>>>>>> new_tasks.size: " << new_tasks.size() << std::endl;
     for (size_t i = 0; i < new_tasks.size(); ++i) {
         auto &task = new_tasks[i];
         auto &tokens = task->input_tokens;
@@ -733,8 +735,7 @@ void SearcherImplV1<int, int>::fill_encode_input(std::vector<SearchTask> &new_ta
             e_position = e_position.slice_dim0(0, m * h_position[0].size());
         }
 
-        // if (debug_level > 1 && ctx.rank() == 0) {
-        if (1) {
+        if (debug_level < 1 && ctx.rank() != 0) { // todo ...
             std::cout << "e_token: " << e_token << std::endl;
             std::cout << "e_placement: " << e_placement << std::endl;
             std::cout << "e_position: " << e_position << std::endl;
@@ -851,8 +852,6 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
     auto peer_fn = [&](int i) {
         auto &ctx1 = *peer_ctx[i];
         model::DynBatchContext *dyn_ctx = ctx1.dyn_batch().get();
-        std::cout << ">>>>>>>>>>> input e token: " << dyn_ctx->e_token.numel() << std::endl;
-        std::cout << ">>>>>>>>>>> input s token: " << dyn_ctx->s_token.numel() << std::endl;
         // join encode and search input together to call model->encode()
         Tensor group_token = concat_tensor(ctx1, dyn_ctx->e_token, dyn_ctx->s_token, 0);
         Tensor group_position = concat_tensor(ctx1, dyn_ctx->e_position, dyn_ctx->s_position, 0);
@@ -862,11 +861,7 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
 
         Tensor input_embeddings;
         Tensor &task0_emb = tasks[0]->input_embeddings;
-        std::cout << "dyn_ctx->s_token.numel(): " << dyn_ctx->s_token.numel() << std::endl;
-        std::cout << "dyn_ctx->e_token.numel(): " << dyn_ctx->e_token.numel() << std::endl;
-        std::cout << "group_token.size(): " << group_token.size(0) << std::endl;
         if (!task0_emb.empty() && !dyn_ctx->e_token.empty()) {
-            std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> tianx >>>>>>>>>>>>>>>>" << std::endl;
             BM_ASSERT_EQ(1, dyn_ctx->s_token.numel(), "Feed embedding decode tasks[0] only");
             BM_ASSERT_EQ(group_token.size(0), task0_emb.size(0), "Feed embedding decode tasks[0] only");
             input_embeddings = ctx1.tensor(task0_emb.shape(), task0_emb.dtype());
@@ -893,11 +888,10 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
             Tensor hidden_search = hidden_g.slice_dim0(dyn_ctx->e_token.numel(), group_token.size(0));
             std::cout << "hidden_search: " << hidden_search.numel() << std::endl;
             Tensor logits = md->get_logits(ctx1, hidden_search, true);
+            // assign result in rank 0
             if (i == 0) {
                 ret_logits = logits;
             }
-            // assign result in rank 0
-            // if (i == 0) ret_logits = logits;
         }
 
         ctx1.clear_identity_cache();
@@ -911,7 +905,7 @@ Tensor SearcherImplV1<int, int>::join_forward(Tensor *hidden) {
 template <typename TokenT, typename ResultT>
 void SearcherImplV1<TokenT, ResultT>::batch_search() {
     int active_count = 0;
-    std::cout << "[cpp] >>>>>>>>>> SearcherImplV1<TokenT, ResultT>::batch_search()" << std::endl;
+    std::cout << "[cpp] SearcherImplV1<TokenT, ResultT>::batch_search()" << std::endl;
 
     while (true) {
         if (in_chunking()) {
@@ -954,7 +948,7 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
 
         // resize fields
         if (!config.rag_buffer) {
-            std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> current \n";
+            // todo tianx ...
         }
         num_new_tasks = new_tasks.size();
         if (debug_level && num_new_tasks > 0) {
@@ -965,7 +959,6 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
         std::cout << ">>>>>>>>>>>>>> tasks[0]: " << tasks[0] << std::endl
                   << std::endl;
         if (feed_input_embedding && tasks[0]) {
-            std::cout << "=================================== current ++++++++++++++++++++++" << std::endl;
             // int b = assign_free_slot(tasks[0]);
             // if (debug_level) std::cout << "Move task 0 to " << b << std::endl;
             // move_task(b, 0);
@@ -1002,7 +995,7 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
 
         size_t logits_dim = searcher->model_->vocab_size;
         logits_all = logits_all.view({max_batch_active, max_beam_size, logits_dim});
-        std::cout << ">>>>>>>>>>>>>>> current line !!!" << std::endl;
+        // std::cout << ">>>>>>>>>>>>>>> current line !!!" << std::endl;
         if (hidden.numel()) {
             hidden = hidden.view({max_batch_active, max_beam_size, hidden.size(-1)});
         }
@@ -1010,7 +1003,7 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
         /** ------------------------------ Pick top k ------------------------------- **/
         pick_top_k(logits_all, hidden, h_placement, h_prob_prev);
 
-        std::cout << ">>>>>>>>>>>>>>> well done!!!" << std::endl;
+        // std::cout << ">>>>>>>>>>>>>>> well done!!!" << std::endl;
         exit(0);
     }
 }
@@ -1018,10 +1011,15 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
 template <>
 void SearcherImplV1<int, int>::pick_top_k(
     Tensor logits_all, Tensor hidden, Mat2DInt &h_placement, Matrix2D<float> &h_prob_prev) {
-    std::cout << ">>>>>>>>>> pick top k >>>>>>>>>>>>>>>>>>" << std::endl;
+    // std::cout << ">>>>>>>>>> pick top k >>>>>>>>>>>>>>>>>>" << std::endl;
     size_t logits_dim = searcher->model_->vocab_size;
-    // this->apply_repetition_penalty(logits_all, h_placement);
+    this->apply_repetition_penalty(logits_all, h_placement);
     // auto penalised_logits = logits_all.chunk();
+}
+
+template <>
+void SearcherImplV1<int, int>::apply_repetition_penalty(Tensor &logits_all, // (batch, beam_size, vocab_size)
+                                                        Mat2DInt &h_placement) {
 }
 
 void BatchGenerator::run() {
@@ -1032,13 +1030,10 @@ void BatchGenerator::run() {
             *engine_, *model_, config, par_models_.empty() ? -1 : 0, !par_models_.empty());
         std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> BatchGenerator run() \n";
         if (llama_model()) {
-            std::cout << " 1231 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>> BatchGenerator run() \n";
             SearcherImplV1<int, int>(ctx, config, this).batch_search();
         } else if (!model_) {
-            std::cout << " 1111 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>> BatchGenerator run() \n";
             throw std::invalid_argument("No model");
         } else {
-            std::cout << " 2222 >>>>>>>>>>>>>>>>>>>>>>>>>>>>>> BatchGenerator run() \n";
             throw std::invalid_argument(std::string("Unknown model:") + model_->layer_type());
         }
         std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>> BatchGenerator end() \n";

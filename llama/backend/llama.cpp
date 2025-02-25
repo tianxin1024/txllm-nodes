@@ -58,7 +58,7 @@ core::Tensor LLaMA::encode(ModelContext &ctx,
     Tensor hidden;
     if (hidden_pass.empty()) {
         hidden = token_embedding(ctx, ids);
-        std::cout << ">>>>>>>> hidden size: " << hidden.numel() << std::endl;
+        // std::cout << ">>>>>>>> hidden size: " << hidden.numel() << std::endl;
     } else {
         hidden = functions::typecast(ctx, hidden_pass, dtype);
     }

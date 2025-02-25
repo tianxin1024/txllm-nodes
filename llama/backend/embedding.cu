@@ -125,7 +125,7 @@ public:
                                          input, // (seq_len, dim_model)
                                          weight // (vocab_size, dim_model)T
         );                                      // (seq_len, vocab_size)
-        std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>> current tianx >>>>>>>>>>>>>>>" << std::endl;
+        // std::cout << ">>>>>>>>>>>>>>>>>>>>>>>>>>>> current tianx >>>>>>>>>>>>>>>" << std::endl;
         return logits;
     }
 
