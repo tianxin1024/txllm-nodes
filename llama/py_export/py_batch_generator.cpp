@@ -76,6 +76,10 @@ public:
 
     py::object get_result(float timeout);
 
+    int input_tokens_num() {
+        return int(task_->input_length());
+    }
+
 }; // namespace bind
 
 // class __attribute__ ((visibility("hidden"))) PyBatchGenerator {
@@ -185,6 +189,7 @@ void define_dynamic_batch(py::module_ &handle) {
     py::class_<PySearchTask, std::shared_ptr<PySearchTask>>(handle, "SearchTask")
         .def("has_result", &PySearchTask::has_result)
         .def("get_result", &PySearchTask::get_result)
+        .def("input_tokens_num", &PySearchTask::input_tokens_num)
         .def(py::init(&PySearchTask::create));
 
     py::class_<PyBatchGenerator, std::shared_ptr<PyBatchGenerator>>(handle, "BatchGenerator")
