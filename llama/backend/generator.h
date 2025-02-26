@@ -12,6 +12,21 @@ public:
     std::vector<std::map<int32_t, float>> logprobs;     // logprobs with candidates.
     float cumulative_logprob{0};                        // raw cumulative logprob
     float score{0};                                     // cumulative logprob with penalty applied
+
+    void set_tokens(std::vector<int32_t> &&tokens) {
+        this->tokens = tokens;
+    }
+    void set_logprobs(std::vector<std::map<int32_t, float>> &&logprobs) {
+        this->logprobs = std::move(logprobs);
+    }
+
+    void set_top_logprobs(std::vector<std::map<int32_t, float>> &&logprobs) {
+        this->top_logprobs = std::move(logprobs);
+    }
+
+    size_t tokens_num() const {
+        return tokens.size();
+    }
 };
 
 struct StreamResult : public SearchResult {

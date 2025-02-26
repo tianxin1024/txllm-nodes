@@ -106,6 +106,20 @@ public:
         if (topk == 0) {
             topk = 1;
         }
+        std::vector<SearchResult> results;
+        size_t results_num = topk > current_results ? current_results : topk;
+        results.reserve(results_num);
+        for (size_t i = 0; i < results_num; i++) {
+            size_t index = score_ids[i].second;
+            SearchResult result;
+            result.set_tokens(std::move(result_list[index]));
+            result.set_logprobs(std::move(logprobs[index]));
+            result.set_top_logprobs(std::move(top_logprobs[index]));
+            result.cumulative_logprob = cumulative_logprobs[index];
+            result.score = result_score[index];
+            results.emplace_back(result);
+        }
+        return results;
     }
 
     bool full() {

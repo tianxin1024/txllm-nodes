@@ -1166,7 +1166,6 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
 
         size_t logits_dim = searcher->model_->vocab_size;
         logits_all = logits_all.view({max_batch_active, max_beam_size, logits_dim});
-        // std::cout << ">>>>>>>>>>>>>>> current line !!!" << std::endl;
         if (hidden.numel()) {
             hidden = hidden.view({max_batch_active, max_beam_size, hidden.size(-1)});
         }
@@ -1226,6 +1225,7 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
                 max_batch_active1--;
             }
         }
+        std::cout << ">>>>>>>>>>>>>>> current line !!!" << std::endl;
         if (config.rag_buffer) {
             pad_task();
         } else if (searcher->queue_.empty() && active_count < max_batch_active) {
