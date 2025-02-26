@@ -695,6 +695,12 @@ public:
                 resize_task_buf(b, new_len_buf); // alloc new
             }
         }
+
+        steps[b] = 0;
+        hypotheses[b].clear();
+        hypotheses[b].resize(1);
+        next_tokens[b].clear();
+        stream_res[b].stream.clear();
     }
 
     len_t get_batch_active() {

@@ -43,3 +43,4 @@ attention/build
 llama/.cache/clangd/index
 llama/build
 llama/llama/__pycache__
+llama/debug
