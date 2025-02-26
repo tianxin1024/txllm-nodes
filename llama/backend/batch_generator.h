@@ -39,11 +39,14 @@ struct SearchTask_ {
     std::function<void(const generator::SearchResults &results)> callback;
     volatile bool canceled{false};
     long begin_ts{0};
+    long first_token_delay_ms{0};
 
     std::vector<int> position_ids;           // passed-in position ids of 'PROMPT'
     bmengine::core::Tensor input_embeddings; // passed-in embeddings of 'PROMPT', device=CPU
 
 public:
+    void finish(generator::SearchResults &&results);
+    void update_stream(const generator::SearchResults &results);
     size_t input_length() const {
         return input_tokens.size();
     }
@@ -71,6 +74,7 @@ public:
 
     bool push(SearchTask task, bool wait, bool notify = true);
 
+    bool empty();
     std::vector<SearchTask> pop_multi(int limit, bool wait, int require, int max_token, bool pre_alloc);
     void stop();
     size_t size();

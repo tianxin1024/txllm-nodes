@@ -29,6 +29,27 @@ public:
         max_size_(max_size) {
     }
 
+    bool push(const T &task, bool wait, bool notify = true) {
+        Lock lock(mutex_);
+        if (!wait && queue_.size() >= max_size_) {
+            return false;
+        }
+        while (queue_.size() >= max_size_) {
+            can_push_cond_.wait(lock);
+        }
+        queue_.push(task);
+        if (notify) {
+            can_pop_cond_.notify_one();
+        }
+        return true;
+    }
+
+    void emplace(T &&t) {
+        Lock lock(mutex_);
+        queue_.emplace(t);
+        can_pop_cond_.notify_one();
+    }
+
     size_t size() {
         Lock lock(mutex_);
         return queue_.size();

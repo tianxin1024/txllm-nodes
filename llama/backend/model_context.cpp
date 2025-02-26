@@ -67,6 +67,10 @@ void ModelContext::resize_task_buf(int b, size_t new_length) {
     rag_buffer()->resize_task_buf(*this, b, new_length);
 }
 
+void ModelContext::free_task_buf(int b) {
+    rag_buffer()->free_task_buf(b);
+}
+
 // for batch_generator
 ModelContext ModelContext::create(core::Engine &engine,
                                   const ModelBase &md,

@@ -87,6 +87,7 @@ public:
 
     // For ragged buffer: each task has a different buffer length.
     void resize_task_buf(int b, size_t new_length);
+    void free_task_buf(int b);
 
     static ModelContext create(core::Engine &engine,
                                const ModelBase &md,

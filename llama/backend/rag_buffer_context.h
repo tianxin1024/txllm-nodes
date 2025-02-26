@@ -93,6 +93,12 @@ public:
         }
     }
 
+    void free_task_buf(int b) {
+        check_task_index(b);
+        buf_k_.erase(buf_k_.begin() + b);
+        buf_v_.erase(buf_v_.begin() + b);
+    }
+
     void set_buffer_addr(ModelContext &ctx) {
         if (active_batch() > 0) {
             h_buf_k_addresses = get_buf_addresses(BUF_K, &TransformerBuffer::get_layer);

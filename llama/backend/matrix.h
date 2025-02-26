@@ -34,10 +34,19 @@ public:
         return data[x * dim1 + y];
     }
 
+    T *mutable_data() {
+        return data;
+    }
+
     bmengine::core::Tensor to_tensor(const bmengine::core::Context &ctx) {
         auto tensor = ctx.tensor({dim0, dim1}, DTD::data_type());
         tensor.from_buffer(data);
         return tensor;
+    }
+
+    std::vector<T> vec(size_t row) const {
+        std::vector<T> v(data + row * dim1, data + row * dim1 + dim1);
+        return std::move(v);
     }
 
 }; // end of class Matrix2D

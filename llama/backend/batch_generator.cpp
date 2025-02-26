@@ -5,6 +5,7 @@
 #include "backend/dyn_batch_context.h"
 #include "backend/matrix.h"
 #include "backend/prefix_cache.h"
+#include "backend/beam_util.h"
 
 #include <bmengine/core/thread_pool.h>
 #include <bmengine/logger/kernel_time_trace.hpp>
@@ -17,6 +18,7 @@
 
 namespace batch_generator {
 
+using bmengine::core::DataType;
 using bmengine::core::TaskThreadPool;
 using generator::BeamHypothesis;
 using generator::SearchResult;
@@ -39,6 +41,16 @@ len_t round_up_len(len_t len, len_t d = 32) {
     return (len + d - 1) / d * d;
 }
 
+void SearchTask_::finish(generator::SearchResults &&results) {
+    BM_ASSERT(!results.results.empty(), "finish without result!");
+    callback(results);
+    res_queue.emplace(std::move(results));
+}
+
+void SearchTask_::update_stream(const generator::SearchResults &results) {
+    res_queue.push(results, true);
+}
+
 TaskQueue::TaskQueue(int max_size) :
     max_size_(max_size) {
 }
@@ -56,6 +68,11 @@ bool TaskQueue::push(SearchTask task, bool wait, bool notify) {
         can_pop_cond_.notify_one();
     }
     return true;
+}
+
+bool TaskQueue::empty() {
+    Lock lock(mutex_);
+    return queue_.empty();
 }
 
 std::vector<SearchTask> TaskQueue::pop_multi(int limit, bool wait, int require, int max_token, bool pre_alloc) {
@@ -96,6 +113,45 @@ void TaskQueue::stop() {
     stopping_ = true;
     can_pop_cond_.notify_one();
 }
+
+class RepetitionPenalty {
+public:
+    float repetition_penalty;
+    float ngram_penalty;
+
+    RepetitionPenalty(float repetition_penalty, float ngram_penalty) :
+        repetition_penalty(repetition_penalty), ngram_penalty(ngram_penalty) {
+    }
+
+    virtual ~RepetitionPenalty() = default;
+
+    virtual void apply_penalty(ModelContext &ctx,
+                               const std::vector<int> &hypo_last_poses,
+                               Tensor *logits_all) = 0;
+}; // end of class RepetitionPenalty
+
+class LlamaRepetitionPenalty : public RepetitionPenalty {
+    beam_utility::BeamBufferManager<int> &bm;
+
+public:
+    LlamaRepetitionPenalty(float repetition_penalty,
+                           float ngram_penalty,
+                           beam_utility::BeamBufferManager<int> &bm) :
+        RepetitionPenalty(repetition_penalty, ngram_penalty),
+        bm(bm) {
+    }
+
+    void apply_penalty(ModelContext &ctx,
+                       const std::vector<int> &hypo_last_poses,
+                       Tensor *logits_all) override {
+        apply_beam_repetition_penalty(
+            ctx, bm,
+            hypo_last_poses,
+            ngram_penalty,
+            repetition_penalty,
+            logits_all);
+    }
+}; // end of class LlamaRepetitionPenalty
 
 BatchGenerator::BatchGenerator(DynBatchConfig config,
                                std::vector<model::ModelBase *> par_models,
@@ -210,6 +266,40 @@ public:
             CURAND_CHECK(curandSetGeneratorOffset(gen, 0));
             CURAND_CHECK(curandSetPseudoRandomGeneratorSeed(gen, seed));
         }
+    }
+
+    static void check_shape(const std::pair<Tensor, Tensor> &top_scores, int top) {
+        BM_ASSERT_EQ(top_scores.first.size(-1), top, "Invalid topk size");
+        BM_ASSERT_EQ(top_scores.first.numel(), top_scores.second.numel(), "TopK error");
+    }
+
+    void get_top_k(Tensor &logits_all, int top, float *top_probs, int *top_ids) {
+        if (diverse) {
+            // apply gumbel softmax
+            auto gumbel_logits = beam_utility::apply_gumbel_softmax(ctx, gen, logits_all);
+            auto top_scores = topk->forward(ctx, gumbel_logits, top);
+            check_shape(top_scores, top);
+
+            // 还是用 logits_all 里面的分数
+            beam_utility::gather_logits(ctx, top_scores.second, logits_all).to_buffer(top_probs);
+            top_scores.second.to_buffer(top_ids);
+        } else {
+            auto top_scores = topk->forward(ctx, logits_all, top);
+            check_shape(top_scores, top);
+
+            functions::typecast(ctx, top_scores.first, DataType::kFloat).to_buffer(top_probs);
+            top_scores.second.to_buffer(top_ids);
+        }
+    }
+
+    void get_top_k(Tensor &logits_all, int top, Matrix2D<float> *top_probs, Matrix2D<int> *top_ids) {
+        BM_ASSERT_EQ(logits_all.size(0) * top, top_ids->size(), "size mismatch");
+        get_top_k(logits_all, top, top_probs->mutable_data(), top_ids->mutable_data());
+    }
+
+    void get_top_k(Tensor &logits_all, int top, std::vector<float> *top_probs, std::vector<int> *top_ids) {
+        BM_ASSERT_EQ(logits_all.size(0) * top, top_ids->size(), "size mismatch");
+        get_top_k(logits_all, top, top_probs->data(), top_ids->data());
     }
 
 }; // end of class TopKWrapper
@@ -548,6 +638,10 @@ public:
 
     void pick_top_k(Tensor logits_all, Tensor hidden, Mat2DInt &h_placement, Matrix2D<float> &h_prob_prev);
 
+    void random_sample(len_t b, Tensor penalised_logits, std::vector<int> *top_ids, std::vector<float> *probs);
+
+    void update_stream(len_t b, int sent_id, int word_id, int last_hypo_pos, float score);
+
     void apply_repetition_penalty(Tensor &logits_all, Mat2DInt &h_prob_prev);
 
     len_t assign_free_slot(SearchTask task) {
@@ -607,6 +701,77 @@ public:
         return max_batch_active;
     }
 
+    Tensor log_softmax(const Tensor &logits_all, Matrix2D<float> &h_prob_prev);
+
+    void erase_task(size_t b) {
+        tasks.erase(tasks.begin() + b);
+        topk.erase(topk.begin() + b);
+        result_mgr.erase(result_mgr.begin() + b);
+        stream_res.erase(stream_res.begin() + b);
+        bm.erase(bm.begin() + b);
+        steps.erase(steps.begin() + b);
+        hypotheses.erase(hypotheses.begin() + b);
+        next_tokens.erase(next_tokens.begin() + b);
+        swapped_buffers.erase(swapped_buffers.begin() + b);
+        auto fn = [this, b](int i) {
+            peer_ctx[i]->free_task_buf(b);
+        };
+        peer_run(fn, false);
+    }
+
+    void pad_task() {
+        // padding to max_batch
+        while (tasks.size() < max_batch) {
+            tasks.emplace_back();
+            topk.emplace_back();
+            result_mgr.emplace_back(0);
+            stream_res.emplace_back();
+            bm.emplace_back(0);
+            steps.emplace_back();
+            hypotheses.emplace_back();
+            next_tokens.emplace_back();
+            swapped_buffers.emplace_back();
+        }
+    }
+
+    void move_task(size_t b, size_t e) {
+        tasks[b] = std::move(tasks[e]);
+        topk[b] = std::move(topk[e]);
+        result_mgr[b] = std::move(result_mgr[e]);
+        stream_res[b] = std::move(stream_res[e]);
+        bm[b] = std::move(bm[e]);
+        steps[b] = std::move(steps[e]);
+        hypotheses[b] = std::move(hypotheses[e]);
+        next_tokens[b] = std::move(next_tokens[e]);
+        swapped_buffers[b] = std::move(swapped_buffers[e]);
+    }
+
+    void record_top_logprobs(size_t b, const Tensor &logits) {
+        Tensor zero_bias = ctx.tensor_of(std::vector<float>(max_beam_size));
+        // Tensor log_probs = logits;
+        Tensor log_probs = ctx.tensor(logits.shape(), logits.dtype());
+        beam_utility::log_softmax_bias(ctx, logits, zero_bias, tasks[b]->temperature, &log_probs);
+        functions::TopK tk(ctx);
+        auto log_probs_ch = log_probs.chunk();
+        BM_ASSERT_EQ(log_probs.size(0), size_t(max_beam_size), "Wrong size");
+        BM_ASSERT(!next_tokens[b].empty(), "");
+        BM_ASSERT_LE(next_tokens[b].size(), hypotheses[b].size(), "");
+        log_probs_ch.resize(next_tokens[b].size());
+
+        int top_num = tasks[b]->top_logprobs;
+        for (len_t i = 0; i < next_tokens[b].size(); i++) {
+            auto [d_probs, d_ids] = tk.forward(ctx, log_probs.slice_dim0_len(i, 1), top_num);
+            std::vector<int> h_ids(top_num);
+            std::vector<float> h_probs(top_num);
+            d_ids.to_buffer(h_ids.data());
+            functions::typecast(ctx, d_probs, DataType::kFloat).to_buffer(h_probs.data());
+            BM_ASSERT_EQ(hypotheses[b][i].top_logprobs.size(), steps[b] * top_num, "");
+
+            for (int k = 0; k < top_num; ++k) {
+                hypotheses[b][i].top_logprobs.emplace_back(h_ids[k], h_probs[k]);
+            }
+        }
+    }
 }; // end of class SearcherImplV1
 
 template <>
@@ -1003,8 +1168,168 @@ void SearcherImplV1<TokenT, ResultT>::batch_search() {
         /** ------------------------------ Pick top k ------------------------------- **/
         pick_top_k(logits_all, hidden, h_placement, h_prob_prev);
 
-        // std::cout << ">>>>>>>>>>>>>>> well done!!!" << std::endl;
-        exit(0);
+        for (len_t b = 0; b < max_batch_active; ++b) {
+            if (!next_tokens[b].empty()) {
+                float best_score = next_tokens[b][0].log_prob / float(steps[b] + 1);
+                if (ctx.debug() > 1 && b == debug_batch) {
+                    std::cout << "b=" << b << ", t=" << steps[b] << ", score=" << best_score << std::endl;
+                }
+                if (!result_mgr[b].accept_score(best_score)) {
+                    // stop search, because current result's score is too small
+                    next_tokens[b].clear();
+                }
+            }
+            steps[b]++;
+            if (steps[b] == 1 && tasks[b]) {
+                tasks[b]->first_token_delay_ms = (logger::get_time_us() - tasks[b]->begin_ts) / 1000;
+            }
+        }
+
+        /** ------------------------------ Fill result ------------------------------- **/
+        active_count = 0;
+        len_t max_batch_active1 = max_batch_active;
+        max_batch_active = 0;
+        for (len_t b = 0; b < max_batch_active1; ++b) {
+            if (tasks[b] && next_tokens[b].empty()) {
+                if (result_mgr[b].get_current_results() == 0) {
+                    std::cerr << "No Result and no next_tokens!" << std::endl;
+                }
+                int num = std::min(tasks[b]->num_results, result_mgr[b].get_current_results());
+                SearchResults results{};
+                results.results = result_mgr[b].get_search_results(num);
+                results.first_token_delay_ms = tasks[b]->first_token_delay_ms;
+                tasks[b]->finish(std::move(results));
+                tasks[b].reset();
+                if (in_chunking()) {
+                    BM_ASSERT(chunking_b > 0, "");
+                    BM_ASSERT_LE(b, chunking_b - 1, "");
+                    chunking_b--;
+                }
+                std::cout << "Finish task " << b << std::endl;
+            }
+            if (tasks[b] && tasks[b]->canceled) {
+                tasks[b].reset();
+                std::cout << "Cancel search task " << b << std::endl;
+            }
+            if (tasks[b]) {
+                active_count++;
+                max_batch_active = b + 1;
+            } else if (config.rag_buffer) {
+                erase_task(b);
+                b--;
+                max_batch_active1--;
+            }
+        }
+        if (config.rag_buffer) {
+            pad_task();
+        } else if (searcher->queue_.empty() && active_count < max_batch_active) {
+            for (len_t b = 0, e = max_batch_active - 1; b < e && active_count < max_batch_active;) {
+                while (tasks[b]) b++;
+                move_task(b, e);
+                do {
+                    e--;
+                    max_batch_active--;
+                } while (!tasks[e]);
+            }
+        }
+
+        std::cout << ">>>>>>>>>>>>>>> well done!!!" << std::endl;
+    }
+}
+
+template <>
+void SearcherImplV1<int, int>::apply_repetition_penalty(Tensor &logits_all, // (batch, beam_size, vocab_size)
+                                                        Mat2DInt &h_placement) {
+    // implement: logits[:, self.tokenizer.bos_token_id] = -float("inf")
+    std::vector<int> batch_hypos; // (batch, beam_size)
+    for (int b = 0; b < max_batch_active; ++b) {
+        if (tasks[b] && steps[b] == 0) {
+            float penalty_factor = tasks[b]->repetition_penalty;
+            for (len_t h = 0; h < max_beam_size; ++h) {
+                batch_hypos.push_back(b * max_beam_size + h);
+            }
+        }
+        if (!batch_hypos.empty()) {
+            std::vector<int> bos_ids(batch_hypos.size(), config.bos_id);
+            std::vector<int> eos_ids(batch_hypos.size(), config.eos_id);
+            std::vector<float> neg_inf(batch_hypos.size(), -50000);
+            beam_utility::scatter_update(ctx, neg_inf, bos_ids, batch_hypos, logits_all);
+            beam_utility::scatter_update(ctx, neg_inf, eos_ids, batch_hypos, logits_all);
+        }
+    }
+
+    bool need_ngram_penalty = false;
+    for (int b = 0; b < max_batch_active; ++b) {
+        if (tasks[b] && tasks[b]->ngram_penalty > 1.0) {
+            need_ngram_penalty = true;
+            break;
+        }
+    }
+    if (!need_ngram_penalty) {
+        std::vector<int> batch_hypos; // (batch, beam_size)
+        std::vector<int> tokens;
+        std::vector<float> repeat_penalty;
+        std::vector<float> presence_penalties;
+
+        for (int b = 0; b < max_batch_active; ++b) {
+            if (tasks[b] && (tasks[b]->repetition_penalty != 1.0 || tasks[b]->presence_penalty != 0.)) {
+                float penalty_factor = tasks[b]->repetition_penalty;
+                float presence_penalty = tasks[b]->repetition_penalty;
+                for (size_t h = 0; h < hypotheses[b].size(); ++h) {
+                    for (int token_id : hypotheses[b][h].token_id_set) {
+                        batch_hypos.push_back(b * max_beam_size + h);
+                        tokens.push_back(token_id);
+                        repeat_penalty.push_back(penalty_factor);
+                        presence_penalties.push_back(presence_penalty);
+                    }
+                }
+            }
+        }
+        if (!batch_hypos.empty()) {
+            // sparsely update
+            // beam_utility::beam_repetition_penalty(ctx, repeat_penalty, tokens, batch_hypos, logits_all, presence_penalties);
+        }
+        return;
+    }
+
+    std::vector<Tensor> logits_chunks = logits_all.chunk();
+    for (int b = 0; b < max_batch_active; ++b) {
+        if (!tasks[b])
+            continue;
+        size_t hyp_num = next_tokens[b].size();
+        BM_ASSERT(hyp_num > 0, "hyp_num > 0");
+        std::vector<int> b_placement(&h_placement(b, 0), &h_placement(b, 0) + hyp_num);
+        Tensor chunk = logits_chunks[b].slice_dim0(0, hyp_num);
+        LlamaRepetitionPenalty(tasks[b]->repetition_penalty, tasks[b]->ngram_penalty, bm[b])
+            .apply_penalty(ctx, b_placement, &chunk);
+    }
+}
+
+template <typename TokenT, typename ResultT>
+Tensor SearcherImplV1<TokenT, ResultT>::log_softmax(const Tensor &logits_all, Matrix2D<float> &h_prob_prev) {
+    Tensor d_prob_prev = h_prob_prev.to_tensor(ctx);
+    Tensor score_all = beam_utility::log_softmax_bias(ctx, logits_all, d_prob_prev);
+    return score_all;
+}
+
+template <>
+void SearcherImplV1<int, int>::update_stream(
+    len_t b, int sent_id, int word_id, int last_hypo_pos, float score) {
+    len_t t = steps[b];
+    stream_res[b].stream.score = score;
+    if (sent_id == 0 && t == stream_res[b].stream.step + 1) {
+        // increasingly update
+        if (word_id != config.eos_id) {
+            stream_res[b].stream.append(word_id);
+            tasks[b]->update_stream(stream_res[b]);
+        }
+    } else {
+        // full update
+        bool is_eos = word_id == config.eos_id && !config.keep_eos;
+        auto tmp_res = bm[b].get_hypo_tokens(word_id, is_eos, last_hypo_pos);
+        BM_ASSERT(tmp_res.size() > 0, "No results");
+        stream_res[b].stream.update(std::move(tmp_res), t);
+        tasks[b]->update_stream(stream_res[b]);
     }
 }
 
@@ -1014,12 +1339,122 @@ void SearcherImplV1<int, int>::pick_top_k(
     // std::cout << ">>>>>>>>>> pick top k >>>>>>>>>>>>>>>>>>" << std::endl;
     size_t logits_dim = searcher->model_->vocab_size;
     this->apply_repetition_penalty(logits_all, h_placement);
-    // auto penalised_logits = logits_all.chunk();
+    auto penalised_logits = logits_all.chunk();
+
+    // shape (max_batch_active, beam_size, logits_dim)
+    Tensor score_all = log_softmax(logits_all, h_prob_prev);
+
+    // calculate top k
+    len_t num_top = std::min(max_beam_size * 2, len_t(32)); // * 2 because may have eos_id
+    Matrix2D<float> top_probs_all(max_batch_active, num_top);
+    Matrix2D<int> top_ids_all(max_batch_active, num_top);
+    // 拍平，后面的 top k 对应的是所有 this_step_size 个 hypothesis 的所有 vocab 的打分
+    score_all = score_all.view({max_batch_active, max_beam_size * logits_dim});
+    topk_all.get_top_k(score_all, num_top, &top_probs_all, &top_ids_all);
+    // TODO diverse for every task
+
+    for (size_t b = 0; b < max_batch_active; ++b) {
+        BM_ASSERT_EQ(hypotheses[b].size(), next_tokens[b].size(), "size mismatch");
+        size_t hyp_num = next_tokens[b].size();
+        if (tasks[b] && tasks[b]->top_logprobs > 0) {
+            record_top_logprobs(b, penalised_logits[b]);
+        }
+        std::vector<BeamHypothesis> old_hypotheses = std::move(hypotheses[b]);
+        hypotheses[b].clear();
+        next_tokens[b].clear();
+        if (hyp_num == 0)
+            continue;
+        len_t t = steps[b];
+        std::vector<int> top_ids = top_ids_all.vec(b);
+        std::vector<float> top_probs = top_probs_all.vec(b);
+        if (tasks[b]->is_random()) {
+            random_sample(b, penalised_logits[b], &top_ids, &top_probs);
+        }
+        // put top k into next_tokens
+        for (len_t i = 0; i < top_ids.size(); i++) {
+            int word_id = top_ids[i] % logits_dim; // token_id
+            int sent_id = top_ids[i] / logits_dim; // hypo id
+            if (sent_id >= int(hyp_num)) {
+                std::cerr << "[b=" << steps[b] << ", i=" << i << "] send_id out of range!\n";
+                continue;
+            }
+            int last_hypo_pos = h_placement(b, sent_id);
+            float score = top_probs[i] / float(t + 1);
+
+            if (i == 0 && tasks[b]->stream) { // && score > stream_res[b].stream_res[b].stream.score
+                update_stream(b, sent_id, word_id, last_hypo_pos, score);
+            }
+
+            bool is_eos = word_id == config.eos_id;
+            if (is_eos || t + 1 == tasks[b]->max_length) {
+                bool ignore_eos = config.ignore_eos && (t + 1) < tasks[b]->max_length;
+                if (!ignore_eos && result_mgr[b].accept_score(score)) {
+                    // add_result if end of beam
+                    auto res = bm[b].get_hypo_tokens(word_id, is_eos && !config.keep_eos, last_hypo_pos);
+                    int res_idx = result_mgr[b].add_result(res, {}, top_probs[i], score);
+                    if (res_idx >= 0 && tasks[b]->top_logprobs > 0) {
+                        BM_ASSERT_LE(size_t(sent_id) + 1, old_hypotheses.size(), "");
+                        result_mgr[b].set_top_logprobs(
+                            res_idx, old_hypotheses[sent_id].get_top_logprobs(tasks[b]->top_logprobs));
+                        std::cout << "Add result:" << result_mgr[b].get_current_results() << " at step " << steps[b]
+                                  << ", b=" << b << ", beam_size=" << tasks[b]->beam_size << std::endl;
+                        if (tasks[b]->is_random()) {
+                            if (0 == --tasks[b]->beam_size) {
+                                std::cout << "Stop random search" << std::endl;
+                                next_tokens[b].clear();
+                                break;
+                            }
+                        }
+                    }
+                } else {
+                    bm[b].increase_buf_ref(last_hypo_pos);
+                    if (hyp_num == 1 && tasks[b]->beam_size == 1) {
+                        hypotheses[b].emplace_back(std::move(old_hypotheses[sent_id]));
+                    } else {
+                        hypotheses[b].push_back(old_hypotheses[sent_id]);
+                    }
+                    hypotheses[b].back().add_token(word_id, top_probs[i]);
+                    next_tokens[b].emplace_back(word_id, last_hypo_pos, top_probs[i], 0);
+                }
+
+                if (next_tokens[b].size() >= tasks[b]->beam_size) {
+                    break;
+                }
+            }
+            bm[b].release_buffer(&h_placement(b, 0), hyp_num);
+        }
+    }
 }
 
-template <>
-void SearcherImplV1<int, int>::apply_repetition_penalty(Tensor &logits_all, // (batch, beam_size, vocab_size)
-                                                        Mat2DInt &h_placement) {
+template <typename TokenT, typename ResultT>
+void SearcherImplV1<TokenT, ResultT>::random_sample(
+    len_t b, Tensor penalised_logits, std::vector<int> *top_ids, std::vector<float> *fake_probs) {
+    SearchTask task = tasks[b];
+    bool first_step = steps[b] == 0;
+    penalised_logits = penalised_logits.slice_dim0(0, first_step ? 1 : task->beam_size);
+    Tensor probs = ctx.tensor(penalised_logits.size(), penalised_logits.dtype());
+    functions::softmax(ctx, penalised_logits, probs, tasks[b]->temperature);
+
+    core::Tensor selection;
+
+    // sample many results in the first step
+    // sample one for each instance after the first step
+    int num_samples = first_step ? task->num_results : 1;
+    int num_selections = task->beam_size;
+    std::cout << "b: " << b << ", step=" << steps[b] << ", num_samples=" << num_samples << ", num_selections=" << num_selections << std::endl;
+    selection = ctx.tensor({(size_t)num_selections}, core::DataType::kInt32);
+    beam_utility::random_sampler_gpu(ctx, topk[b]->generator(), probs, selection, task->top_p, task->top_k, num_samples);
+
+    top_ids->resize(num_selections);
+    selection.to_buffer(top_ids->data());
+
+    fake_probs->clear();
+    int logits_dim = probs.size(-1);
+    for (int i = 0; i < num_selections; i++) {
+        if (!first_step)
+            (*top_ids)[i] += logits_dim * i; // set sent_id to id
+        fake_probs->push_back(steps[b] * (steps[b] + 1));
+    }
 }
 
 void BatchGenerator::run() {
